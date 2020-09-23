@@ -26,8 +26,8 @@ The `modules` directory contains the following dependencies:
 |:---------------------- |------------|--------------------------------------------------------------------|---------------------------------------------------|
 | `peano.py`             | Python | Translates particle IDs into coordinates from the initial conditions.  | None                                              |
 | `read_swift.py`        | Python | Reads snapshots generated using the SWIFT code.                        | None                                              |
-| `read_eagle.py`        | Python/C | Reads snapshots generated using the GADGET code in EAGLE format.     | `ReadEagle-*.egg-info` `_read_eagle.cpython*.so`|
-| `ParallelFunctions.py` | Python | Wraps functions for the python MPI interface to be used for applying the particle load.                          | None                                              |
+| `read_eagle.py`        | Python/C | Reads snapshots generated using the GADGET code in EAGLE format.     | `ReadEagle-*.egg-info` `_read_eagle.cpython*.so`  |
+| `ParallelFunctions.py` | Python | Wraps functions for the python MPI interface to be used for applying the particle load.                          | None    |
 | `MakeGrid.pyx`         | Cython | Contains functions for grid deposition.                                | `MakeGrid.c` `MakeGrid.cpython-*.so`              |
 
 Note that the compiled binaries provided will only work on a Linux platform with `x86-64` 64-bit architecture. If you are using a different set-up, please remove 
