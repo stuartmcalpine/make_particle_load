@@ -1,0 +1,26 @@
+box_size:           202.98
+n_particles:        11466731375            # No of particles if whole box was at res you want.
+f_name:             EAGLE-XL_Cluster100                  # Save name.
+glass_num:          1331                   # Particles in glass file.
+ndim_fft_start:     3
+is_zoom:            True                           # Is a zoom simulation.
+n_species:          2
+mask_file:          ./make_mask/masks/EAGLE-XL_Cluster100.hdf5
+
+n_cores_ic_gen: 48
+use_ph_ids: False
+
+which_cosmology: Planck2018
+
+structure_finding: True
+structure_finding_config: ../vrconfig_3dfof_subhalos_bound_zoom_sim.cfg
+
+make_swift_param_files: True
+swift_dir: /cosma7/data/dp004/rttw52/swift_runs/runs/EAGLE-XL/
+swift_ic_dir_loc: /cosma7/data/dp004/rttw52/swift_runs/make_ics/ics/
+swift_exec_location: /cosma7/data/dp004/rttw52/swift_runs/runs/EAGLE-XL/swiftsim-dmo/examples/swift_mpi
+
+make_ic_param_files: True
+ic_dir: /cosma7/data/dp004/rttw52/codes/ic_gen/run/
+
+panphasian_descriptor: "[Panph1,L18,(74412,22732,260484),S3,CH1799108544,EAGLE-XL_L0300_VOL1]"
