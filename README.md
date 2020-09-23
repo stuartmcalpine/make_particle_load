@@ -4,7 +4,11 @@ You can clone this repository locally by simply running
 ```commandline
 git clone https://github.com/stuartmcalpine/make_particle_load.git
 ```
-and using `git pull` to update to the latest changes. The masking and particle-load
+and using
+```bash
+git pull
+```
+to update to the latest changes. The masking and particle-load
 scripts rely on several dependencies, collected in the `modules` sub-directory. In order to run
 the scripts successfully, you will need to activate these modules and make the `modules` directory
 visible to the `python3` executable. The process of setting the correct `PYTHONPATH` is 
@@ -27,6 +31,10 @@ The `modules` directory contains the following dependencies:
 | `MakeGrid.pyx`         | Cython | Contains functions for grid deposition.                                | `MakeGrid.c` `MakeGrid.cpython-*.so`              |
 
 Note that the compiled binaries provided will only work on a Linux platform with `x86-64` 64-bit architecture. If you are using a different set-up, please remove 
-the binaries from your local clone and recompile the source. `MakeGrid.pyx` can be compiled with `cythonize -i MakeGrid.pyx`, while for setting up `read_eagle.py`
+the binaries from your local clone and recompile the source. `MakeGrid.pyx` can be compiled with
+```bash
+cythonize -i MakeGrid.pyx
+```
+while for setting up `read_eagle.py`
 we refer to the more detailed documentation in John Helly's [repository](https://github.com/jchelly/read_eagle). For a correct implementation of the `read_eagle.py`
 module, it is important that at least the `.so` image binary and the `.py` source code are visible by the `PYTHONPATH` and located in the same directory.
