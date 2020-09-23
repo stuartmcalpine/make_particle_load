@@ -1,7 +1,7 @@
 Set-up this repository
 --------
 You can clone this repository locally by simply running 
-```commandline
+```bash
 git clone https://github.com/stuartmcalpine/make_particle_load.git
 ```
 and using
