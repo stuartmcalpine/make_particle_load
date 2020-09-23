@@ -1,0 +1,35 @@
+# This lists all the available options, not to be used as a param file in its native form.
+# All params, e.g. the coordinates, are expected to be in the native units of the snapshot.
+# NOTE: If you are using an automatic group selection, make sure you are using a Velociraptor output
+#  catalogue (.properties). SUBFIND outputs are deprecated as of 17-09-2020.
+# If using automatic selection through the Velociraptor catalogue a sorting key must be selected
+# and the GroupNumber is the index of the group in the list sorted by decreasing mass (from largest to
+# smallest).
+
+# SET-UP MASK #
+fname:             L0300N0564_VRGROUPNUMBER    # The save name for the mask file
+snap_file:         /cosma7/data/dp004/jch/EAGLE-XL/DMONLY/Cosma7/L0300N0564/snapshots/EAGLE-XL_L0300N0564_DMONLY_0036.hdf5  # The location of the snapshot we are creating the mask from
+bits:              21                  # The number of bits used in the particle IDs for the Peano-Hilbert indexing (EAGLE runs use 14)
+shape:             sphere              # Shape of the region to reproduce. Available are: 'sphere', 'cubiod', 'slab'
+data_type:         swift               # Can be 'gadget' or 'swift' (default 'swift')
+divide_ids_by_two: False               # True if you need to divide PIDs by two to get back to ICS (needed for eagle)
+min_num_per_cell:  3                   # Minimum particles per cell (default 3). Cells with less than `min_num_per_cell` particles are ignored
+mpc_cell_size:     1.2                 # Cell size in Mpc / h (default 3.)
+select_from_vr:    1                   # If set to 1, it enables automatic groups search from the Velociraptor catalogue. Set to 0 for manual selection
+
+# AMOEBA TOPOLOGY #
+topology_fill_holes:       1           # Toggle algorithm for filling holes. Set value to 1 to enable, 0 to disable (default 0)
+topology_dilation_niter:   2           # Number of iterations of the algorithm for extrusion. Set value to 0 to disable (default 0)
+topology_closing_niter:    2           # Number of iterations of the algorithm for rounding edges. Set value to 0 to disable (default 0)
+
+# AUTOMATIC GROUP SELECTION #
+vr_file:             /cosma7/data/dp004/jch/EAGLE-XL/DMONLY/Cosma7/L0300N0564/snapshots/stf_swiftdm_3dfof_subhalo_0036/stf_swiftdm_3dfof_subhalo_0036.VELOCIraptor.properties.0 # The location of the Velociraptor group catalogue (to find coordinates of given GN)
+sort_m200crit:       SORTM200          # If 1, sorts groups in the VR catalogue by M_200crit. Overrides `sort_m500crit` if both specified
+sort_m500crit:       SORTM500          # If 1, sorts groups in the VR catalogue by M_500crit
+GN:                  GROUPNUMBER       # The Group-Number of the halo in the structure-finding catalogue (requires `vr_file`). GN relative to the sorting rule
+#highres_radius_r200: 5.               # How many times r200 of the passed group do you want to re-simulate. Overrides `highres_radius_r500` if both selected
+highres_radius_r500: 10.               # How many times r500 of the passed group do you want to re-simulate
+
+# OUTPUT DIRECTORY #
+output_dir:           /cosma7/data/dp004/dc-alta2/xl-zooms/ics/masks # Directory where the mask image and hdf5 output are saved
+
