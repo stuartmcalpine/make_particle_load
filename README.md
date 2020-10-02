@@ -52,6 +52,8 @@ cythonize -i MakeGrid.pyx
 ```
 run in the same directory as `MakeGrid.pyx`. This operation produces the `MakeGrid.c` file, which encloses a C-translation
 of the original Cython syntax and the `MakeGrid.cpython-*.so` shared object, which is the file that the Python interpreter
+will actually point to when the `import` command is called. You may remove `MakeGrid.c` as it is only used by the Cython compiler 
+to generate the shared object and is not needed by any other scripts at runtime.
 
 External dependencies
 --------
@@ -83,8 +85,8 @@ Python version detected by the compiler,
 Given the format of the `read_eagle` Python wrapper, it is important that `read_eagle.py` and `_read_eagle.cpython-{36m}-{x86_64-linux-gnu}.so`
 are located in the same directory for a correct implementation. In order to call `import read_eagle` from an external 
 project, such as the zooms initial conditions pipeline, you need to append the `read_eagle.py` path to `$PYTHONPATH`.
-If you installed `read_eagle` in `/modules`, we recommend moving `read_eagle.py`, `_read_eagle.cpython-{36m}-{x86_64-linux-gnu}.so`
-and `ReadEagle-{1.0}-py{3.6}.egg-info` three directories up, at the same level as the project-specific modules (at this point, 
+If you installed `read_eagle` in `/modules`, we recommend moving `read_eagle.py` and `_read_eagle.cpython-{36m}-{x86_64-linux-gnu}.so`
+three directories up, at the same level as the project-specific modules (at this point, 
 you may delete the `/modules/lib/python3.6/site-packages` path). When appending the `/modules` path to `$PYTHONPATH` via 
 `sys.path.append()`, the interpreter will also be able to import `read_eagle.py`.
 
