@@ -1,4 +1,5 @@
 import sys
+import os
 import yaml
 import h5py
 from typing import List, Tuple
@@ -9,15 +10,32 @@ from scipy import ndimage
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 
-from read_swift import read_swift
-from read_eagle import EagleSnapshot
-from peano import peano_hilbert_key_inverses
+sys.path.append(
+    os.path.join(
+        os.path.dirname(os.path.abspath(__file__)).parent,
+        "modules"
+    )
+)
+
+try:
+    from peano import peano_hilbert_key_inverses
+except ImportError:
+    raise Exception("Make sure you have added the `peano.py` module directory to your $PYTHONPATH.")
+try:
+    from read_swift import read_swift
+except ImportError:
+    raise Exception("Make sure you have added the `read_swift.py` module directory to your $PYTHONPATH.")
+try:
+    from read_eagle import EagleSnapshot
+except ImportError:
+    raise Exception("Make sure you have added the `read_eagle.py` module directory to your $PYTHONPATH.")
 
 from mpi4py import MPI
 
 comm = MPI.COMM_WORLD
 comm_rank = comm.rank
 comm_size = comm.size
+
 
 # try:
 #     plt.style.use("../../mnras.mplstyle")
@@ -157,7 +175,8 @@ class MakeMask:
                     if comm_rank == 0:
                         print(error)
                         print("If using highres_radius_r500, the selection will use R_200crit instead.")
-                        warn("The high-resolution radius is now set to R_200crit * highres_radius_r500 / 2.", RuntimeWarning)
+                        warn("The high-resolution radius is now set to R_200crit * highres_radius_r500 / 2.",
+                             RuntimeWarning)
                 else:
                     radius = R500c * self.params['highres_radius_r500']
             else:
@@ -212,19 +231,19 @@ class MakeMask:
         # A sphere with radius R.
         if self.params['shape'] == 'sphere':
             self.region = [self.params['coords'][0] - self.params['radius'],
-                      self.params['coords'][0] + self.params['radius'],
-                      self.params['coords'][1] - self.params['radius'],
-                      self.params['coords'][1] + self.params['radius'],
-                      self.params['coords'][2] - self.params['radius'],
-                      self.params['coords'][2] + self.params['radius']]
+                           self.params['coords'][0] + self.params['radius'],
+                           self.params['coords'][1] - self.params['radius'],
+                           self.params['coords'][1] + self.params['radius'],
+                           self.params['coords'][2] - self.params['radius'],
+                           self.params['coords'][2] + self.params['radius']]
         # A cuboid with sides x,y,z.
         elif self.params['shape'] == 'cuboid' or self.params['shape'] == 'slab':
             self.region = [self.params['coords'][0] - self.params['dim'][0] / 2.,
-                      self.params['coords'][0] + self.params['dim'][0] / 2.,
-                      self.params['coords'][1] - self.params['dim'][1] / 2.,
-                      self.params['coords'][1] + self.params['dim'][1] / 2.,
-                      self.params['coords'][2] - self.params['dim'][2] / 2.,
-                      self.params['coords'][2] + self.params['dim'][2] / 2.]
+                           self.params['coords'][0] + self.params['dim'][0] / 2.,
+                           self.params['coords'][1] - self.params['dim'][1] / 2.,
+                           self.params['coords'][1] + self.params['dim'][1] / 2.,
+                           self.params['coords'][2] - self.params['dim'][2] / 2.,
+                           self.params['coords'][2] + self.params['dim'][2] / 2.]
         if comm_rank == 0:
             print('Loading region...\n', self.region)
         if self.params['data_type'].lower() == 'gadget':
@@ -266,12 +285,13 @@ class MakeMask:
                          self.params['coords'], self.params['length_unit']))
 
             mask = np.where(
-                np.logical_and(coords[:, 0] >= (self.params['coords'][0] - self.params['dim'][0] / 2.),
-                np.logical_and(coords[:, 0] <= (self.params['coords'][0] + self.params['dim'][0] / 2.),
-                np.logical_and(coords[:, 1] >= (self.params['coords'][1] - self.params['dim'][1] / 2.),
-                np.logical_and(coords[:, 1] <= (self.params['coords'][1] + self.params['dim'][1] / 2.),
-                np.logical_and(coords[:, 2] >= (self.params['coords'][2] - self.params['dim'][2] / 2.),
-                coords[:, 2] <= (self.params['coords'][2] + self.params['dim'][2] / 2.)))))))
+                coords[:, 0] >= (self.params['coords'][0] - self.params['dim'][0] / 2.) &
+                coords[:, 0] <= (self.params['coords'][0] + self.params['dim'][0] / 2.) &
+                coords[:, 1] >= (self.params['coords'][1] - self.params['dim'][1] / 2.) &
+                coords[:, 1] <= (self.params['coords'][1] + self.params['dim'][1] / 2.) &
+                coords[:, 2] >= (self.params['coords'][2] - self.params['dim'][2] / 2.) &
+                coords[:, 2] <= (self.params['coords'][2] + self.params['dim'][2] / 2.)
+            )
 
         ids = ids[mask]
         print(f'[Rank {comm_rank}] Clipped to {len(ids)} dark matter particles')
@@ -331,31 +351,31 @@ class MakeMask:
         ic_coords -= com_coords
 
         # Compute outline of histogram region.
-        outline_min_x = comm.allreduce(np.min(ic_coords[:,0]), op=MPI.MIN)
-        outline_max_x = comm.allreduce(np.max(ic_coords[:,0]), op=MPI.MAX)
-        outline_min_y = comm.allreduce(np.min(ic_coords[:,1]), op=MPI.MIN)
-        outline_max_y = comm.allreduce(np.max(ic_coords[:,1]), op=MPI.MAX)
-        outline_min_z = comm.allreduce(np.min(ic_coords[:,2]), op=MPI.MIN)
-        outline_max_z = comm.allreduce(np.max(ic_coords[:,2]), op=MPI.MAX)
+        outline_min_x = comm.allreduce(np.min(ic_coords[:, 0]), op=MPI.MIN)
+        outline_max_x = comm.allreduce(np.max(ic_coords[:, 0]), op=MPI.MAX)
+        outline_min_y = comm.allreduce(np.min(ic_coords[:, 1]), op=MPI.MIN)
+        outline_max_y = comm.allreduce(np.max(ic_coords[:, 1]), op=MPI.MAX)
+        outline_min_z = comm.allreduce(np.min(ic_coords[:, 2]), op=MPI.MIN)
+        outline_max_z = comm.allreduce(np.max(ic_coords[:, 2]), op=MPI.MAX)
 
         # Start with coordinates boundary.
         ic_coord_outline_width = np.max(
-                [outline_max_x - outline_min_x,
-                 outline_max_y - outline_min_y,
-                 outline_max_z - outline_min_z])
+            [outline_max_x - outline_min_x,
+             outline_max_y - outline_min_y,
+             outline_max_z - outline_min_z])
 
         # Region can be buffered, x2 to be safe.
         ic_coord_outline_width *= 2
 
-        # Can't be bigger than the boxsize.
+        # Can't be bigger than the box size.
         outline_width = min(ic_coord_outline_width, self.params['bs'])
-        
+
         # Create mask.
-        num_bins =\
-            int(np.ceil(outline_width/(self.params['mpc_cell_size'])))
-        bins = np.linspace(-outline_width/2., outline_width/2., num_bins)
-        bin_width = bins[1]-bins[0]
-        H, edges = np.histogramdd(ic_coords, bins = (bins,bins,bins))
+        num_bins = \
+            int(np.ceil(outline_width / (self.params['mpc_cell_size'])))
+        bins = np.linspace(-outline_width / 2., outline_width / 2., num_bins)
+        bin_width = bins[1] - bins[0]
+        H, edges = np.histogramdd(ic_coords, bins=(bins, bins, bins))
         H = comm.allreduce(H)
 
         # Initialize binary mask
@@ -450,13 +470,13 @@ class MakeMask:
     def plot(self, H, edges, bin_width, m, ic_coords, lens):
         """ Plot the region outline. """
         axes_label = ['x', 'y', 'z']
-    
+
         # What's the width of the slab?
         if self.params['shape'] == 'slab':
             slab_width = min(
-                    self.region[1] - self.region[0],
-                    self.region[3] - self.region[2],
-                    self.region[5] - self.region[4])
+                self.region[1] - self.region[0],
+                self.region[3] - self.region[2],
+                self.region[5] - self.region[4])
 
         # Subsample.
         idx = np.random.permutation(len(ic_coords))
@@ -481,7 +501,7 @@ class MakeMask:
                 if self.params['shape'] == 'slab' and j != 2: continue
                 if self.params['shape'] != 'slab' and count > 2: break
                 if self.params['shape'] != 'slab': axarr[count].set_aspect('equal')
-                
+
                 # This outlines the bounding region.
                 rect = patches.Rectangle(
                     (-lens[i * 2], -lens[j * 2]),
@@ -495,10 +515,10 @@ class MakeMask:
                 axarr[count].add_patch(rect)
                 if self.params['shape'] == 'slab':
                     if count > 1:
-                        axarr[count].set_ylim(-slab_width/2.-10, -slab_width/2.+10)
+                        axarr[count].set_ylim(-slab_width / 2. - 10, -slab_width / 2. + 10)
                         axarr[count].set_xlim(-lens[i * 2] - 1, lens[i * 2 + 1] + 1)
                     else:
-                        axarr[count].set_ylim(slab_width/2.-10, slab_width/2.+10)
+                        axarr[count].set_ylim(slab_width / 2. - 10, slab_width / 2. + 10)
                         axarr[count].set_xlim(-lens[i * 2] - 1, lens[i * 2 + 1] + 1)
                 else:
                     axarr[count].set_xlim(-lens[i * 2], lens[i * 2 + 1])
