@@ -103,7 +103,8 @@ def make_param_file_ics(dir, fname, n_sp, sp1_2_div, sp_2_3_div, boxsize,
 
 def make_param_file_swift(dir, omega0, omegaL, omegaB, h, starting_z,
         finishing_z, fname, is_zoom, template_set, softening_ratio_background,
-        eps_dm, eps_baryon, eps_dm_physical, eps_baryon_physical, ic_dir):
+        eps_dm, eps_baryon, eps_dm_physical, eps_baryon_physical, ic_dir,
+        gas_particle_mass):
 
     # Make data dir.
     data_dir = dir + '%s/'%fname
@@ -135,6 +136,13 @@ def make_param_file_swift(dir, omega0, omegaL, omegaB, h, starting_z,
         '%.8f'%omegaB, fname, '%.8f'%(eps_dm/h),
         '%.8f'%(eps_baryon/h), '%.3f'%(softening_ratio_background),
         '%.8f'%(eps_baryon_physical/h), '%.8f'%(eps_dm_physical/h), ic_dir, fname]
+    elif template_set.lower() == 'eaglexl':
+        split_mass = gas_particle_mass / 10**10. * 4.
+        r = [fname, '%.5f'%h, '%.8f'%starting_a, '%.8f'%finishing_a, '%.8f'%omega0, '%.8f'%omegaL,
+        '%.8f'%omegaB, fname, '%.8f'%(eps_dm/h),
+        '%.8f'%(eps_baryon/h), '%.8f'%(eps_dm_physical/h),
+        '%.8f'%(eps_baryon_physical/h), '%.3f'%(softening_ratio_background), 
+        '%.8f'%split_mass, fname]
     else:
         raise ValueError("Invalid template set")
 

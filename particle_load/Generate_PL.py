@@ -20,12 +20,11 @@ comm_size = comm.Get_size()
 class ParticleLoad:
 
     def __init__(self, param_file, randomize=False, only_calc_ntot=False,
-            save_hdf5=False, save_data=True):
+            verbose=False):
 
         self.randomize      = randomize
         self.only_calc_ntot = only_calc_ntot
-        self.save_hdf5      = save_hdf5
-        self.save_data      = save_data
+        self.verbose        = verbose
 
         # Think about later.
         self.do_gadget = False
@@ -68,6 +67,10 @@ class ParticleLoad:
         self.constraint_phase_descriptor_path2      = '%dummy'
         self.constraint_phase_descriptor_levels2    = '%dummy'
 
+        # Save the particle load data.
+        self.save_data = True
+        self.save_hdf5 = False
+
         # Make swift param files?
         self.make_swift_param_files = False
         self.swift_dir = './SWIFT_runs/'
@@ -79,10 +82,11 @@ class ParticleLoad:
         self.ic_dir = './ic_gen_output/'
 
         # Params for hi res grid.
+        self.nq_mass_reduce_factor = 0.5 # Mass of first nq level relative to grid
         self.skin_reduce_factor = 1/8.   # What factor do high res skins reduce by.
-        self.min_num_per_cell   = 1     # Min number of particles in high res cell (must be cube).
+        self.min_num_per_cell   = 8     # Min number of particles in high res cell (must be cube).
         self.radius_factor      = 1.
-        self.glass_buffer_cells = 0      # Number of buffer cells on each side (must be even, eg. 2 = 1 on each side)
+        self.glass_buffer_cells = 2      # Number of buffer cells on each side (must be even, eg. 2 = 1 on each side)
         self.ic_region_buffer_frac = 1.25 # 25% (buffer for FFT grid during ICs).
 
         # Default starting and finishing redshifts.
@@ -108,6 +112,7 @@ class ParticleLoad:
         self.n_nodes_swift = 1
         self.num_hours_ic_gen = 24
         self.num_hours_swift = 72
+        self.ncores_node = 28
 
         # Params for outer low res particles
         self.min_nq = 30
@@ -182,9 +187,11 @@ class ParticleLoad:
                     (gas_mass, gas_mass*self.HubbleParam/1.e10))
         else:
             M_tot_dm_dmo = None
+            gas_mass = None
 
         M_tot_dm_dmo = comm.bcast(M_tot_dm_dmo)
         self.total_box_mass = M_tot_dm_dmo
+        self.gas_particle_mass = comm.bcast(gas_mass)
 
     def init_high_res(self, offsets, cell_nos, L):
         """ Initialize the high resolution grid with the primary high resolution particles. """
@@ -486,7 +493,8 @@ class ParticleLoad:
         if self.is_zoom:
             if self.is_slab:
                 # Starting nq is equiv of double the mass of the most massive grid particles.
-                suggested_nq = int(num_lowest_res**(1/3.) * max_cells * 0.5)        
+                suggested_nq = \
+                        int(num_lowest_res**(1/3.) * max_cells * self.nq_mass_reduce_factor)     
                 n_tot_lo = self.find_nq_slab(suggested_nq, slab_width)
             else:
                 # Dont want boundary particles more massive than high-res region particles.
@@ -494,15 +502,16 @@ class ParticleLoad:
                         self._max_nq)
 
                 # Starting nq is equiv of double the mass of the most massive grid particles.
-                suggested_nq = int(self.n_tot_grid_part_equiv**(1/3.) * 0.5)
+                suggested_nq = int(self.n_tot_grid_part_equiv**(1/3.) * self.nq_mass_reduce_factor)
+                if suggested_nq < 30: suggested_nq = 30
+                if suggested_nq > 1000: suggested_nq = 1000
+
                 if comm_rank == 0:
                     print("num_lowest_res=%i (%.2f cubed)"%(num_lowest_res, num_lowest_res**(1/3.)))
                     print("n_tot_grid_part_equiv=%i (%.2f cubed) (%.2f particles per [cMpc/h]**3)"\
                             %(self.n_tot_grid_part_equiv, self.n_tot_grid_part_equiv**(1/3.),
                               np.true_divide(self.n_tot_grid_part_equiv, high_res_region_max**3.)))
                     print("The nq I wanted was %i"%suggested_nq)
-                if suggested_nq < 30: suggested_nq = 30       
-                if suggested_nq > 75: suggested_nq = 75
 
                 # Compute nq
                 n_tot_lo = self.find_nq(side, suggested_nq)
@@ -537,10 +546,13 @@ class ParticleLoad:
         self.glass_particle_mass = np.min(all_particle_masses)
         if comm_rank == 0:
             if self.is_zoom:
-                print('Glass mass %.8g, min grid mass %.8g, max grid mass %.8g'\
-                    %(self.glass_particle_mass, self.min_grid_mass, self.max_grid_mass))
+                print('Glass mass %.8g (%.2g Msol/h), min grid mass %.8g (%.2g Msol/h), max grid mass %.8g (%.2g Msol/h)'\
+                    %(self.glass_particle_mass, self.glass_particle_mass*self.total_box_mass,
+                        self.min_grid_mass, self.min_grid_mass*self.total_box_mass,
+                        self.max_grid_mass, self.max_grid_mass*self.total_box_mass))
             else:
-                print('Glass mass %.8g'%(self.glass_particle_mass))
+                print('Glass mass %.8g (%.2g Msol/h)'%(self.glass_particle_mass,
+                    self.glass_particle_mass*self.total_box_mass))
 
         # Loop over each cell type and fill up the grid.
         cell_offset = 0
@@ -575,13 +587,14 @@ class ParticleLoad:
                     = self.cell_info['particle_mass'][i]
             
             # Print info for this cell type.
-            print('[%i: Type %i] n=%i (%.2f^3) in %i cells (%i/cell) m=%.4f (%.2g Msol/h)'%\
-                (comm_rank, self.cell_info['type'][i],
-                len(mask[0])*self.cell_info['num_particles_per_cell'][i],
-                (len(mask[0])*self.cell_info['num_particles_per_cell'][i])**(1/3.), len(mask[0]),
-                self.cell_info['num_particles_per_cell'][i],
-                np.log10(self.cell_info['particle_mass'][i]),
-                self.cell_info['particle_mass'][i]*self.total_box_mass))
+            if self.verbose:
+                print('[%i: Type %i] n=%i (%.2f^3) in %i cells (%i/cell) m=%.4f (%.2g Msol/h)'%\
+                    (comm_rank, self.cell_info['type'][i],
+                    len(mask[0])*self.cell_info['num_particles_per_cell'][i],
+                    (len(mask[0])*self.cell_info['num_particles_per_cell'][i])**(1/3.), len(mask[0]),
+                    self.cell_info['num_particles_per_cell'][i],
+                    np.log10(self.cell_info['particle_mass'][i]),
+                    self.cell_info['particle_mass'][i]*self.total_box_mass))
 
             cell_offset += len(mask[0]) * self.cell_info['num_particles_per_cell'][i]
 
@@ -647,6 +660,49 @@ class ParticleLoad:
             bounding_box = [2.*self.radius, 2.*self.radius, 2.*self.radius]
         return bounding_box
 
+    def compute_fft_stats(self, max_boxsize):
+        """ Work out what size of FFT grid we need for the IC gen. """
+        if self.is_zoom:
+            if self.is_slab:
+                self.high_res_n_eff = self.n_particles
+                self.high_res_L = self.box_size
+            else:
+                self.high_res_L = self.ic_region_buffer_frac*max_boxsize
+                assert self.high_res_L < self.box_size, 'Zoom buffer region too big'
+                self.high_res_n_eff = int(self.n_particles * (self.high_res_L**3./self.box_size**3.))
+            print('--- HRgrid c=%s L_box=%.2f Mpc/h'%(self.coords, self.box_size))
+            print('--- HRgrid L_grid=%.2f Mpc/h n_eff=%i (%.2f cub,2x=%.2f) FFT buff frac= %.2f'\
+                    %(self.high_res_L, self.high_res_n_eff,
+                  self.high_res_n_eff**(1/3.), 2.*self.high_res_n_eff**(1/3.),
+                  self.ic_region_buffer_frac))
+
+            # Minimum FFT grid that fits self.fft_times_fac times (defaut=2) the nyquist frequency.
+            ndim_fft = self.ndim_fft_start
+            N = (self.high_res_n_eff)**(1./3)
+            while float(ndim_fft)/float(N) < self.fft_times_fac:
+                ndim_fft *= 2
+            print("--- Using ndim_fft = %d" % ndim_fft)
+
+            # Determine number of cores to use based on memory requirements.
+            # Number of cores must also be a factor of ndim_fft.
+            nmaxpart = 36045928
+            nmaxdisp = 791048437
+
+            ncores_ndisp = np.ceil(float((ndim_fft*ndim_fft * 2 * (ndim_fft/2+1))) / nmaxdisp)
+            ncores_npart = np.ceil(float(N**3) / nmaxpart)
+            ncores = max(ncores_ndisp, ncores_npart)
+            while (ndim_fft % ncores) != 0:
+                ncores += 1
+
+            # If we're using one node, try to use as many of the cores as possible
+            if ncores < self.ncores_node:
+                ncores = self.ncores_node
+                while (ndim_fft % ncores) != 0:
+                    ncores -= 1 
+            print('--- Using %i cores for IC gen (min %i for FFT and min %i for particles)'%\
+                    (ncores, ncores_ndisp, ncores_npart))
+            self.n_cores_ic_gen = ncores
+
     def make_particle_load(self):
 
         if comm_rank == 0:
@@ -660,7 +716,8 @@ class ParticleLoad:
                                 self.compute_softning(verbose=True)
 
         # Load mask file.
-        bounding_box = self.load_mask_file() 
+        if self.is_zoom:
+            bounding_box = self.load_mask_file() 
     
         # |----------------------------------------|
         # | First compute the high resolution grid |
@@ -787,18 +844,7 @@ class ParticleLoad:
                     print('--- Target number of ps %i (%.2f cubed), made %.2f times as many.'%\
                         (n_particles_target, n_particles_target**(1/3.),
                             np.true_divide(all_ntot, n_particles_target)))
-                if self.is_slab:
-                    high_res_n_eff = self.n_particles
-                    high_res_L = self.box_size
-                else:
-                    high_res_L = self.ic_region_buffer_frac*max_boxsize
-                    assert high_res_L < self.box_size, 'Zoom buffer region too big'
-                    high_res_n_eff = int(self.n_particles * (high_res_L**3./self.box_size**3.))
-                print('--- HRgrid c=%s L_box=%.2f Mpc/h'%(self.coords, self.box_size))
-                print('--- HRgrid L_grid=%.2f Mpc/h n_eff=%i (%.2f cub,2x=%.2f) FFT buff frac= %.2f'\
-                        %(high_res_L, high_res_n_eff,
-                      high_res_n_eff**(1/3.), 2.*high_res_n_eff**(1/3.),
-                      self.ic_region_buffer_frac))
+            self.compute_fft_stats(max_boxsize)
             print('--- Total number of particles %i (%.2f cubed)'%\
                 (all_ntot, all_ntot**(1/3.)))
             print('--- Total memory per rank HR grid=%.6f Gb, total of particles=%.6f Gb'%\
@@ -871,9 +917,10 @@ class ParticleLoad:
 
             comm.barrier()
             if n_tot_lo > 0:
-                print('[%i: Outer particles] Generated %i (%.2f cubed) MinM = %.2f MaxM = %.2f'%\
-                    (comm_rank, n_tot_lo, n_tot_lo**(1/3.), np.log10(np.min(masses[n_tot_hi:])),
-                    np.log10(np.max(masses[n_tot_hi:]))))
+                if self.verbose:
+                    print('[%i: Outer particles] Generated %i (%.2f cubed) MinM = %.2f MaxM = %.2f'%\
+                        (comm_rank, n_tot_lo, n_tot_lo**(1/3.), np.log10(np.min(masses[n_tot_hi:])),
+                        np.log10(np.max(masses[n_tot_hi:]))))
 
                 max_lr = np.max(masses[n_tot_hi:])
                 min_lr = np.min(masses[n_tot_hi:])
@@ -888,8 +935,9 @@ class ParticleLoad:
             num_lr = comm.allreduce(num_lr)
 
             if comm_rank == 0:
-                print('Total %i particles in low res region (%.2f cubed) MinM = %.2f MaxM = %.2f'%\
-                    (num_lr, num_lr**(1/3.), np.log10(min_lr), np.log10(max_lr)))
+                print('Total %i particles in low res region (%.2f cubed) MinM = %.2f (%.2g Msol/h) MaxM = %.2f (%.2g Msol/h)'%\
+                    (num_lr, num_lr**(1/3.), np.log10(min_lr), min_lr*self.total_box_mass, 
+                        np.log10(max_lr), max_lr*self.total_box_mass))
             self.lr_mass_cut = min_lr
            
             # Checks.
@@ -978,28 +1026,13 @@ class ParticleLoad:
                 lr_cut = np.log10(self.max_grid_mass) + 0.01
                 print('log10 mass cut from parttype 2 --> 3 = %.2f'%(lr_cut))
 
-            if self.is_slab:
-                high_res_n_eff = self.n_particles
-                high_res_L = self.box_size
-
-            else:
-                high_res_L = self.ic_region_buffer_frac*max_boxsize
-                assert high_res_L < self.box_size, 'Zoom buffer region too big'
-                high_res_n_eff = int(self.n_particles * (high_res_L**3./self.box_size**3.))
-            print('High res grid coords=%s, L_box=%.2f Mpc/h, L_grid=%.2f Mpc/h n_eff=%i (%.2f cubed)'\
-                    %(self.coords, self.box_size, high_res_L, high_res_n_eff,
-                        high_res_n_eff**(1/3.)))
-        else:
-            high_res_n_eff = 0
-            high_res_L = 0.0
-
         # Make ICs param file.
         i_z = 1 if self.is_zoom else 0
         if self.make_ic_param_files:
             make_param_file_ics(self.ic_dir, self.f_name, self.n_species, hr_cut,
                     lr_cut, self.box_size, self.starting_z, self.n_particles,
-                    self.coords[0], self.coords[1], self.coords[2], high_res_L,
-                    high_res_n_eff, i_z, self.panphasian_descriptor,
+                    self.coords[0], self.coords[1], self.coords[2], self.high_res_L,
+                    self.high_res_n_eff, i_z, self.panphasian_descriptor,
                     self.constraint_phase_descriptor,
                     self.constraint_phase_descriptor_path,
                     self.constraint_phase_descriptor_levels,
@@ -1039,7 +1072,8 @@ class ParticleLoad:
                     self.starting_z, self.finishing_z, self.f_name,
                     self.is_zoom, self.template_set,
                     self.softening_ratio_background, eps_dm, eps_baryon,
-                    eps_dm_physical, eps_baryon_physical, self.swift_ic_dir_loc)
+                    eps_dm_physical, eps_baryon_physical,
+                    self.swift_ic_dir_loc, self.gas_particle_mass)
             print('Saved swift param file.')
 
     def save_submit_files(self, max_boxsize):
