@@ -39,7 +39,7 @@ class MakeMask:
             # Defaults.
             self.params = {}
             self.params['min_num_per_cell'] = 3
-            self.params['mpc_cell_size'] = 3.  # Cell size in Mpc/h
+            self.params['mpc_cell_size'] = 3.
             self.params['topology_fill_holes'] = True
             self.params['topology_dilation_niter'] = 0
             self.params['topology_closing_niter'] = 0
@@ -293,6 +293,8 @@ class MakeMask:
             self.params['coords'] *= h
         if 'bs' in keys:
             self.params['bs'] *= h
+        if 'mpc_cell_size' in keys:
+            self.params['mpc_cell_size'] *= h
         return coords * h
 
     def make_mask(self):
@@ -355,6 +357,7 @@ class MakeMask:
             int(np.ceil(outline_width/(self.params['mpc_cell_size'])))
         bins = np.linspace(-outline_width/2., outline_width/2., num_bins)
         bin_width = bins[1]-bins[0]
+        if comm_rank == 0: print ("Using a bin width = %.6f Mpc/h"%bin_width)
         H, edges = np.histogramdd(ic_coords, bins = (bins,bins,bins))
         H = comm.allreduce(H)
 
@@ -437,8 +440,12 @@ class MakeMask:
                 f"\tz = {(lens[4] + lens[5]):.4f} Mpc/h"
             )
 
-            tot_cells = len(H[0][m[0]]) + len(H[1][m[1]]) + len(H[2][m[2]])
+            lens_volume = (lens[0] + lens[1]) * (lens[2] + lens[3]) *\
+                (lens[4] + lens[5])
+            tot_cells = len(H[0][m[0]])
+            tot_cells_volume = tot_cells * bin_width**3.
             print(f'There are {tot_cells:d} total mask cells.')
+            print(f'Cells fill {tot_cells_volume/lens_volume:.8f} per cent of region.')
 
         # Plot the mask and the ameba
         self.plot(H, edges, bin_width, m, ic_coords, lens)
@@ -456,7 +463,7 @@ class MakeMask:
             slab_width = min(
                     self.region[1] - self.region[0],
                     self.region[3] - self.region[2],
-                    self.region[5] - self.region[4])
+                    self.region[5] - self.region[4]) * self.params['h_factor']
 
         # Subsample.
         idx = np.random.permutation(len(ic_coords))
@@ -472,7 +479,7 @@ class MakeMask:
         if comm_rank == 0:
             plot_coords = np.vstack(plot_coords)
             if self.params['shape'] == 'slab':
-                fig, axarr = plt.subplots(4, 1, figsize=(10, 6))
+                fig, axarr = plt.subplots(4, 1, figsize=(20, 12))
             else:
                 fig, axarr = plt.subplots(1, 3, figsize=(10, 4))
 
@@ -491,14 +498,15 @@ class MakeMask:
                 )
 
                 # Plot particles.
-                axarr[count].scatter(plot_coords[:, i], plot_coords[:, j], s=0.5, c='blue')
+                axarr[count].scatter(plot_coords[:, i], plot_coords[:, j], s=0.5, c='blue',
+                        zorder=10, alpha=0.5)
                 axarr[count].add_patch(rect)
                 if self.params['shape'] == 'slab':
                     if count > 1:
-                        axarr[count].set_ylim(-slab_width/2.-10, -slab_width/2.+10)
+                        axarr[count].set_ylim(-lens[j * 2]+15, -lens[j * 2]-1)
                         axarr[count].set_xlim(-lens[i * 2] - 1, lens[i * 2 + 1] + 1)
                     else:
-                        axarr[count].set_ylim(slab_width/2.-10, slab_width/2.+10)
+                        axarr[count].set_ylim(lens[j * 2]-15, lens[j * 2]+1)
                         axarr[count].set_xlim(-lens[i * 2] - 1, lens[i * 2 + 1] + 1)
                 else:
                     axarr[count].set_xlim(-lens[i * 2], lens[i * 2 + 1])
