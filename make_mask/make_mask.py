@@ -511,7 +511,7 @@ class MakeMask:
 
                 # Plot particles.
                 axarr[count].scatter(plot_coords[:, i], plot_coords[:, j], s=0.5, c='blue',
-                        zorder=10, alpha=0.5)
+                        zorder=9, alpha=0.5)
                 axarr[count].add_patch(rect)
                 if self.params['shape'] == 'slab':
                     if count > 1:
@@ -552,7 +552,8 @@ class MakeMask:
             if self.params['shape'] == 'sphere':
                 for i in range(3):
                     rect = patches.Circle((0,0), radius=self.params['radius'],
-                        linewidth=1, edgecolor='k', facecolor='none', ls='--')
+                        linewidth=1, edgecolor='k', facecolor='none', ls='--',
+                        zorder=10)
                     axarr[i].add_patch(rect)
 
             plt.tight_layout(pad=0.1)
