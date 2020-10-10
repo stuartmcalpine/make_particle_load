@@ -115,8 +115,8 @@ class ParticleLoad:
         self.ncores_node = 28
 
         # Params for outer low res particles
-        self.min_nq = 30
-        self._max_nq = 100
+        self.min_nq = 20
+        self._max_nq = 1000
 
         # For special set of params.
         self.template_set = 'dmo'
@@ -503,8 +503,8 @@ class ParticleLoad:
 
                 # Starting nq is equiv of double the mass of the most massive grid particles.
                 suggested_nq = int(self.n_tot_grid_part_equiv**(1/3.) * self.nq_mass_reduce_factor)
-                if suggested_nq < 30: suggested_nq = 30
-                if suggested_nq > 1000: suggested_nq = 1000
+                if suggested_nq < self.min_nq: suggested_nq = self.min_nq
+                if suggested_nq > self.max_nq: suggested_nq = self.max_nq
 
                 if comm_rank == 0:
                     print("num_lowest_res=%i (%.2f cubed)"%(num_lowest_res, num_lowest_res**(1/3.)))
