@@ -333,12 +333,24 @@ class MakeMask:
         ic_coords -= com_coords
 
         # Compute outline of histogram region.
-        outline_min_x = comm.allreduce(np.min(ic_coords[:,0]), op=MPI.MIN)
-        outline_max_x = comm.allreduce(np.max(ic_coords[:,0]), op=MPI.MAX)
-        outline_min_y = comm.allreduce(np.min(ic_coords[:,1]), op=MPI.MIN)
-        outline_max_y = comm.allreduce(np.max(ic_coords[:,1]), op=MPI.MAX)
-        outline_min_z = comm.allreduce(np.min(ic_coords[:,2]), op=MPI.MIN)
-        outline_max_z = comm.allreduce(np.max(ic_coords[:,2]), op=MPI.MAX)
+        if len(ic_coords) == 0:
+            outline_min_x = outline_min_y = outline_min_z = 1.e20
+            outline_max_x = outline_max_y = outline_max_z = -1.e20
+        else:
+            outline_min_x = np.min(ic_coords[:,0])
+            outline_min_y = np.min(ic_coords[:,1])
+            outline_min_z = np.min(ic_coords[:,2])
+
+            outline_max_x = np.max(ic_coords[:,0])
+            outline_max_y = np.max(ic_coords[:,1])
+            outline_max_z = np.max(ic_coords[:,2])
+
+        outline_min_x = comm.allreduce(outline_min_x, op=MPI.MIN)
+        outline_max_x = comm.allreduce(outline_max_x, op=MPI.MAX)
+        outline_min_y = comm.allreduce(outline_min_y, op=MPI.MIN)
+        outline_max_y = comm.allreduce(outline_max_y, op=MPI.MAX)
+        outline_min_z = comm.allreduce(outline_min_z, op=MPI.MIN)
+        outline_max_z = comm.allreduce(outline_max_z, op=MPI.MAX)
 
         # Start with coordinates boundary.
         ic_coord_outline_width = np.max(
