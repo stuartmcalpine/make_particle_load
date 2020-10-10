@@ -536,6 +536,13 @@ class MakeMask:
                 axarr[count].set_ylabel(f"{axes_label[j]} [Mpc h$^{{-1}}$]")
                 count += 1
 
+            # Plot target sphere.
+            if self.params['shape'] == 'sphere':
+                for i in range(3):
+                    rect = patches.Circle((0,0), radius=self.params['radius'],
+                        linewidth=1, edgecolor='k', facecolor='none', ls='--')
+                    axarr[i].add_patch(rect)
+
             plt.tight_layout(pad=0.1)
             plt.savefig(f"{self.params['output_dir']}/{self.params['fname']:s}.png")
             plt.close()
