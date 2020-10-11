@@ -2,17 +2,19 @@ import sys
 import os
 import yaml
 import h5py
+import numpy as np
 from typing import List, Tuple
 from warnings import warn
-import numpy as np
 from scipy.spatial import distance
 from scipy import ndimage
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
+from mpi4py import MPI
 
 sys.path.append(
     os.path.join(
-        os.path.dirname(os.path.abspath(__file__)).parent,
+        os.path.dirname(os.path.abspath(__file__)),
+        os.pardir,
         "modules"
     )
 )
@@ -29,8 +31,6 @@ try:
     from read_eagle import EagleSnapshot
 except ImportError:
     raise Exception("Make sure you have added the `read_eagle.py` module directory to your $PYTHONPATH.")
-
-from mpi4py import MPI
 
 comm = MPI.COMM_WORLD
 comm_rank = comm.rank
