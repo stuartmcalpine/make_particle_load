@@ -2,10 +2,10 @@
 # initial conditions. It also interfaces to the Panphasia executable.
 
 # MASK FILE #
-mask_file:           /cosma7/data/dp004/dc-alta2/xl-zooms/ics/masks/accepted/L0300N0564_VR93.hdf5
+mask_file:           PATH_TO_MASK
 
 # PARTICLE LOAD DEPOSITION #
-f_name:              L0300N0564_VR93                 # The save name for the initial conditions output file
+f_name:              FILENAME               # The save name for the initial conditions output file
 which_cosmology:     Planck2018             # Tha cosmology scheme used in Panphasia and in the ICs hdf5 file
 is_zoom:             1                      # Enter 1 if it is a zoom simulations, 0 otherwise
 n_species:           2                      # Number of particle species (2 for zooms: high-res and low-res)
