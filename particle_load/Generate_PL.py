@@ -675,33 +675,36 @@ class ParticleLoad:
                     %(self.high_res_L, self.high_res_n_eff,
                   self.high_res_n_eff**(1/3.), 2.*self.high_res_n_eff**(1/3.),
                   self.ic_region_buffer_frac))
+        else:
+            self.high_res_n_eff = self.n_particles
+            self.high_res_L = self.box_size
 
-            # Minimum FFT grid that fits self.fft_times_fac times (defaut=2) the nyquist frequency.
-            ndim_fft = self.ndim_fft_start
-            N = (self.high_res_n_eff)**(1./3)
-            while float(ndim_fft)/float(N) < self.fft_times_fac:
-                ndim_fft *= 2
-            print("--- Using ndim_fft = %d" % ndim_fft)
+        # Minimum FFT grid that fits self.fft_times_fac times (defaut=2) the nyquist frequency.
+        ndim_fft = self.ndim_fft_start
+        N = (self.high_res_n_eff)**(1./3)
+        while float(ndim_fft)/float(N) < self.fft_times_fac:
+            ndim_fft *= 2
+        print("--- Using ndim_fft = %d" % ndim_fft)
 
-            # Determine number of cores to use based on memory requirements.
-            # Number of cores must also be a factor of ndim_fft.
-            nmaxpart = 36045928
-            nmaxdisp = 791048437
+        # Determine number of cores to use based on memory requirements.
+        # Number of cores must also be a factor of ndim_fft.
+        nmaxpart = 36045928
+        nmaxdisp = 791048437
 
-            ncores_ndisp = np.ceil(float((ndim_fft*ndim_fft * 2 * (ndim_fft/2+1))) / nmaxdisp)
-            ncores_npart = np.ceil(float(N**3) / nmaxpart)
-            ncores = max(ncores_ndisp, ncores_npart)
+        ncores_ndisp = np.ceil(float((ndim_fft*ndim_fft * 2 * (ndim_fft/2+1))) / nmaxdisp)
+        ncores_npart = np.ceil(float(N**3) / nmaxpart)
+        ncores = max(ncores_ndisp, ncores_npart)
+        while (ndim_fft % ncores) != 0:
+            ncores += 1
+
+        # If we're using one node, try to use as many of the cores as possible
+        if ncores < self.ncores_node:
+            ncores = self.ncores_node
             while (ndim_fft % ncores) != 0:
-                ncores += 1
-
-            # If we're using one node, try to use as many of the cores as possible
-            if ncores < self.ncores_node:
-                ncores = self.ncores_node
-                while (ndim_fft % ncores) != 0:
-                    ncores -= 1 
-            print('--- Using %i cores for IC gen (min %i for FFT and min %i for particles)'%\
-                    (ncores, ncores_ndisp, ncores_npart))
-            self.n_cores_ic_gen = ncores
+                ncores -= 1 
+        print('--- Using %i cores for IC gen (min %i for FFT and min %i for particles)'%\
+                (ncores, ncores_ndisp, ncores_npart))
+        self.n_cores_ic_gen = ncores
 
     def make_particle_load(self):
 
