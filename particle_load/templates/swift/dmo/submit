@@ -9,7 +9,14 @@
 #SBATCH --cpus-per-task=28
 #SBATCH --time=XXX:00:00
 
-load_swift_c7
+module purge
+module load intel_comp/2020-update2
+module load intel_mpi/2020-update2
+module load ucx/1.8.1
+module load parmetis/4.0.3-64bit
+module load parallel_hdf5/1.10.6
+module load fftw/3.3.8cosma7
+module load gsl/2.5
 
 mpirun -np $SLURM_NTASKS XXX -v 1 --pin --cosmology --self-gravity --threads=$SLURM_CPUS_PER_TASK params.yml
 

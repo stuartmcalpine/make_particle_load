@@ -8,7 +8,8 @@
 #SBATCH --exclusive
 #SBATCH --time=XXX:00:00
 
-load_icgen
+module purge
+module load intel_comp/2018 intel_mpi/2018 fftw/2.1.5 gsl/2.4 hdf5/1.10.3
 
 cd ../../
 
