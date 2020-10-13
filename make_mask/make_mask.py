@@ -57,7 +57,7 @@ class MakeMask:
             # Defaults.
             self.params = {}
             self.params['min_num_per_cell'] = 3
-            self.params['mpc_cell_size'] = 3.  # Cell size in Mpc/h
+            self.params['mpc_cell_size'] = 3.
             self.params['topology_fill_holes'] = True
             self.params['topology_dilation_niter'] = 0
             self.params['topology_closing_niter'] = 0
@@ -285,12 +285,12 @@ class MakeMask:
                          self.params['coords'], self.params['length_unit']))
 
             mask = np.where(
-                coords[:, 0] >= (self.params['coords'][0] - self.params['dim'][0] / 2.) &
-                coords[:, 0] <= (self.params['coords'][0] + self.params['dim'][0] / 2.) &
-                coords[:, 1] >= (self.params['coords'][1] - self.params['dim'][1] / 2.) &
-                coords[:, 1] <= (self.params['coords'][1] + self.params['dim'][1] / 2.) &
-                coords[:, 2] >= (self.params['coords'][2] - self.params['dim'][2] / 2.) &
-                coords[:, 2] <= (self.params['coords'][2] + self.params['dim'][2] / 2.)
+                (coords[:, 0] >= (self.params['coords'][0] - self.params['dim'][0] / 2.)) &
+                (coords[:, 0] <= (self.params['coords'][0] + self.params['dim'][0] / 2.)) &
+                (coords[:, 1] >= (self.params['coords'][1] - self.params['dim'][1] / 2.)) &
+                (coords[:, 1] <= (self.params['coords'][1] + self.params['dim'][1] / 2.)) &
+                (coords[:, 2] >= (self.params['coords'][2] - self.params['dim'][2] / 2.)) &
+                (coords[:, 2] <= (self.params['coords'][2] + self.params['dim'][2] / 2.))
             )
 
         ids = ids[mask]
@@ -313,6 +313,8 @@ class MakeMask:
             self.params['coords'] *= h
         if 'bs' in keys:
             self.params['bs'] *= h
+        if 'mpc_cell_size' in keys:
+            self.params['mpc_cell_size'] *= h
         return coords * h
 
     def make_mask(self):
@@ -351,12 +353,24 @@ class MakeMask:
         ic_coords -= com_coords
 
         # Compute outline of histogram region.
-        outline_min_x = comm.allreduce(np.min(ic_coords[:, 0]), op=MPI.MIN)
-        outline_max_x = comm.allreduce(np.max(ic_coords[:, 0]), op=MPI.MAX)
-        outline_min_y = comm.allreduce(np.min(ic_coords[:, 1]), op=MPI.MIN)
-        outline_max_y = comm.allreduce(np.max(ic_coords[:, 1]), op=MPI.MAX)
-        outline_min_z = comm.allreduce(np.min(ic_coords[:, 2]), op=MPI.MIN)
-        outline_max_z = comm.allreduce(np.max(ic_coords[:, 2]), op=MPI.MAX)
+        if len(ic_coords) == 0:
+            outline_min_x = outline_min_y = outline_min_z = 1.e20
+            outline_max_x = outline_max_y = outline_max_z = -1.e20
+        else:
+            outline_min_x = np.min(ic_coords[:,0])
+            outline_min_y = np.min(ic_coords[:,1])
+            outline_min_z = np.min(ic_coords[:,2])
+
+            outline_max_x = np.max(ic_coords[:,0])
+            outline_max_y = np.max(ic_coords[:,1])
+            outline_max_z = np.max(ic_coords[:,2])
+
+        outline_min_x = comm.allreduce(outline_min_x, op=MPI.MIN)
+        outline_max_x = comm.allreduce(outline_max_x, op=MPI.MAX)
+        outline_min_y = comm.allreduce(outline_min_y, op=MPI.MIN)
+        outline_max_y = comm.allreduce(outline_max_y, op=MPI.MAX)
+        outline_min_z = comm.allreduce(outline_min_z, op=MPI.MIN)
+        outline_max_z = comm.allreduce(outline_max_z, op=MPI.MAX)
 
         # Start with coordinates boundary.
         ic_coord_outline_width = np.max(
@@ -457,8 +471,12 @@ class MakeMask:
                 f"\tz = {(lens[4] + lens[5]):.4f} Mpc/h"
             )
 
-            tot_cells = len(H[0][m[0]]) + len(H[1][m[1]]) + len(H[2][m[2]])
+            lens_volume = (lens[0] + lens[1]) * (lens[2] + lens[3]) *\
+                (lens[4] + lens[5])
+            tot_cells = len(H[0][m[0]])
+            tot_cells_volume = tot_cells * bin_width**3.
             print(f'There are {tot_cells:d} total mask cells.')
+            print(f'Cells fill {tot_cells_volume/lens_volume:.8f} per cent of region.')
 
         # Plot the mask and the ameba
         self.plot(H, edges, bin_width, m, ic_coords, lens)
@@ -474,9 +492,9 @@ class MakeMask:
         # What's the width of the slab?
         if self.params['shape'] == 'slab':
             slab_width = min(
-                self.region[1] - self.region[0],
-                self.region[3] - self.region[2],
-                self.region[5] - self.region[4])
+                    self.region[1] - self.region[0],
+                    self.region[3] - self.region[2],
+                    self.region[5] - self.region[4]) * self.params['h_factor']
 
         # Subsample.
         idx = np.random.permutation(len(ic_coords))
@@ -492,7 +510,7 @@ class MakeMask:
         if comm_rank == 0:
             plot_coords = np.vstack(plot_coords)
             if self.params['shape'] == 'slab':
-                fig, axarr = plt.subplots(4, 1, figsize=(10, 6))
+                fig, axarr = plt.subplots(4, 1, figsize=(20, 12))
             else:
                 fig, axarr = plt.subplots(1, 3, figsize=(10, 4))
 
@@ -511,14 +529,15 @@ class MakeMask:
                 )
 
                 # Plot particles.
-                axarr[count].scatter(plot_coords[:, i], plot_coords[:, j], s=0.5, c='blue')
+                axarr[count].scatter(plot_coords[:, i], plot_coords[:, j], s=0.5, c='blue',
+                        zorder=9, alpha=0.5)
                 axarr[count].add_patch(rect)
                 if self.params['shape'] == 'slab':
                     if count > 1:
-                        axarr[count].set_ylim(-slab_width / 2. - 10, -slab_width / 2. + 10)
+                        axarr[count].set_ylim(-lens[j * 2]+15, -lens[j * 2]-1)
                         axarr[count].set_xlim(-lens[i * 2] - 1, lens[i * 2 + 1] + 1)
                     else:
-                        axarr[count].set_ylim(slab_width / 2. - 10, slab_width / 2. + 10)
+                        axarr[count].set_ylim(lens[j * 2]-15, lens[j * 2]+1)
                         axarr[count].set_xlim(-lens[i * 2] - 1, lens[i * 2 + 1] + 1)
                 else:
                     axarr[count].set_xlim(-lens[i * 2], lens[i * 2 + 1])
@@ -547,6 +566,14 @@ class MakeMask:
                 axarr[count].set_xlabel(f"{axes_label[i]} [Mpc h$^{{-1}}$]")
                 axarr[count].set_ylabel(f"{axes_label[j]} [Mpc h$^{{-1}}$]")
                 count += 1
+
+            # Plot target sphere.
+            if self.params['shape'] == 'sphere':
+                for i in range(3):
+                    rect = patches.Circle((0,0), radius=self.params['radius'],
+                        linewidth=1, edgecolor='k', facecolor='none', ls='--',
+                        zorder=10)
+                    axarr[i].add_patch(rect)
 
             plt.tight_layout(pad=0.1)
             plt.savefig(f"{self.params['output_dir']}/{self.params['fname']:s}.png")
