@@ -1,0 +1,20 @@
+#!/bin/bash -l
+
+#SBATCH --ntasks=XXX
+#SBATCH --job-name=XXX
+#SBATCH --output=log_%j.txt
+#SBATCH --partition=cosma7
+#SBATCH --account=dp004
+#SBATCH --exclusive
+#SBATCH --time=XXX:00:00
+
+load_icgen
+
+cd ../../
+
+mpirun -env I_MPI_PIN=1 -env I_MPI_PIN_PROCESSOR_LIST=allcores -np $SLURM_NTASKS ./IC_Gen.x ./ic_gen_submit_files/XXX/params.inp
+
+echo "Job done, info follows..."
+sacct -j $SLURM_JOBID --format=JobID,JobName,Partition,AveRSS,MaxRSS,AveVMSize,MaxVMSize,Elapsed,ExitCode
+exit
+

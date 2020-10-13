@@ -1,0 +1,18 @@
+#!/bin/bash -l
+
+#SBATCH --ntasks=XXX
+#SBATCH -J XXX
+#SBATCH --output=out_files/log_%j.txt
+#SBATCH -p cosma7
+#SBATCH -A dp004
+#SBATCH --exclusive
+#SBATCH --cpus-per-task=28
+#SBATCH --time=XXX:00:00
+
+load_swift_c7
+
+mpirun -np $SLURM_NTASKS ../../swiftsim/examples/swift_mpi -v 1 --pin --cosmology --eagle --threads=$SLURM_CPUS_PER_TASK --restart --velociraptor params.yml
+
+echo "Job done, info follows..."
+sacct -j $SLURM_JOBID --format=JobID,JobName,Partition,AveRSS,MaxRSS,AveVMSize,MaxVMSize,Elapsed,ExitCode
+exit
