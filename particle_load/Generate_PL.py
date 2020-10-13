@@ -9,48 +9,13 @@ from scipy.spatial import distance
 from astropy.cosmology import FlatLambdaCDM
 import astropy.units as u
 from mpi4py import MPI
-
-sys.path.append(
-    os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        os.pardir,
-        "modules"
-    )
-)
-
-try:
-    from ParallelFunctions import repartition
-except ImportError:
-    raise Exception("Make sure you have added the `ParallelFunctions.py` module directory to your $PYTHONPATH.")
-
-try:
-    from MakeGrid import (
-        get_layered_particles,
-        get_populated_grid,
-        get_grid,
-        get_guess_nq,
-        get_find_skin_cells,
-        get_layered_particles_slab,
-        get_assign_mask_cells
-    )
-except ImportError:
-    raise Exception("Make sure you have added the `MakeGrid.py` module directory to your $PYTHONPATH.")
-
-try:
-    from MakeParamFile import (
-        make_param_file_ics,
-        make_submit_file_ics,
-        make_submit_file_swift,
-        make_param_file_swift,
-        make_submit_file_gadget
-    )
-except ImportError:
-    raise Exception("Make sure you have added the `MakeParamFile.py` module directory to your $PYTHONPATH.")
+from ParallelFunctions import repartition
+from MakeGrid import *
+from MakeParamFile import *
 
 comm = MPI.COMM_WORLD
 comm_rank = comm.Get_rank()
 comm_size = comm.Get_size()
-
 
 class ParticleLoad:
 
