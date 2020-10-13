@@ -1,0 +1,79 @@
+# Define the system of units to use internally. 
+InternalUnitSystem:
+  UnitMass_in_cgs:     1.98848e43    # 10^10 M_sun
+  UnitLength_in_cgs:   3.08567758e24 # 1 Mpc
+  UnitVelocity_in_cgs: 1e5           # 1 km/s
+  UnitCurrent_in_cgs:  1             # Amperes
+  UnitTemp_in_cgs:     1             # Kelvin
+
+# Cosmological parameters
+Cosmology:
+  h:              XXX
+  a_begin:        XXX
+  a_end:          XXX
+  Omega_m:        XXX
+  Omega_lambda:   XXX
+  Omega_b:        XXX
+
+# Parameters governing the time integration
+TimeIntegration:
+  dt_min:     1e-10 # The minimal time-step size of the simulation (in internal units).
+  dt_max:     1e-2  # The maximal time-step size of the simulation (in internal units).
+
+Scheduler:
+  max_top_level_cells: 32
+  cell_split_size:     200
+
+# Parameters governing the snapshots
+Snapshots:
+  basename:            XXX
+  delta_time:          1.02
+  scale_factor_first:  0.02
+  output_list_on:      1
+  output_list:         ./config/snap_redshifts.txt
+  invoke_stf:          0
+  compression:         9
+  subdir:              snapshots 
+
+# Parameters governing the conserved quantities statistics
+Statistics:
+  delta_time:          1.02
+  scale_factor_first:  0.02
+ 
+# Restart files.
+Restarts:
+  enable:             1
+  delta_hours:        4.0
+  max_run_time:       71.5         # In hours
+  onexit:             1
+
+# Parameters for the self-gravity scheme
+Gravity:
+  eta:                              0.025         
+  comoving_DM_softening:            XXX
+  comoving_baryon_softening:        XXX
+  softening_ratio_background:       XXX
+  max_physical_baryon_softening:    XXX
+  max_physical_DM_softening:        XXX
+  mesh_side_length:                 512
+  MAC:                              adaptive
+  theta_cr:                         0.7
+  epsilon_fmm:                      0.001
+  allow_truncation_in_MAC:          1
+  use_tree_below_softening:         1
+
+# Parameters related to the initial conditions
+InitialConditions:
+  file_name:                   ./ics/XXX.hdf5
+  periodic:                    1
+  cleanup_h_factors:           1
+  cleanup_velocity_factors:    1
+
+# Parameters of the line-of-sight outputs
+LineOfSight:
+  basename:            los
+  num_along_x:         0
+  num_along_y:         0
+  num_along_z:         100
+  scale_factor_first:  0.1
+  delta_time:          1.1
