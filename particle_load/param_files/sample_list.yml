@@ -5,13 +5,13 @@
 mask_file:           PATH_TO_MASK
 
 # PARTICLE LOAD DEPOSITION #
-f_name:              FILENAME               # The save name for the initial conditions output file
-which_cosmology:     Planck2018             # Tha cosmology scheme used in Panphasia and in the ICs hdf5 file
+f_name:              FILENAME_-8res         # The save name for the initial conditions output file
+which_cosmology:     Planck2018             # The cosmology scheme used in Panphasia and in the ICs hdf5 file
 is_zoom:             1                      # Enter 1 if it is a zoom simulations, 0 otherwise
 n_species:           2                      # Number of particle species (2 for zooms: high-res and low-res)
 box_size:            202.98                 # Enter box-size in units of Mpc/h (h must be consistent with cosmology used)
-n_particles:         11466731375            # Number of particles if whole box was at target resolution
-glass_num:           1331                   # Particles in glass file
+n_particles:         11451483064            # Number of particles if whole box was at target resolution
+glass_num:           12167                  # Particles in glass file
 
 # PANPHASIA SET-UP #
 ic_dir:              /cosma7/data/dp004/dc-alta2/xl-zooms/ics/ic_gen/run/
@@ -24,7 +24,7 @@ make_ic_param_files: True
 
 # SWIFT PARAMETER FILE #
 make_swift_param_files: True
-swift_dir:             /cosma7/data/dp004/dc-alta2/xl-zooms/dmo
+swift_dir:             /cosma7/data/dp004/dc-alta2/xl-zooms/dmo/
 swift_exec_location:   /cosma7/data/dp004/dc-alta2/xl-zooms/dmo/swiftsim/examples/swift
 
 # EMBEDDED VELOCIRAPTOR #
