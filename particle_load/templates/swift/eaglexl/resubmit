@@ -2,7 +2,8 @@
 
 #SBATCH --ntasks=XXX
 #SBATCH -J XXX
-#SBATCH --output=out_files/log_%j.txt
+#SBATCH -o ./out_files/%x.%J.swift.out
+#SBATCH -e ./out_files/%x.%J.swift.err
 #SBATCH -p cosma7
 #SBATCH -A dp004
 #SBATCH --exclusive
@@ -18,8 +19,7 @@ module load parallel_hdf5/1.10.6
 module load fftw/3.3.8cosma7
 module load gsl/2.5
 
-mpirun -np $SLURM_NTASKS ../../swiftsim/examples/swift_mpi -v 1 --pin --cosmology --eagle --threads=$SLURM_CPUS_PER_TASK --restart --velociraptor params.yml
+mpirun -np $SLURM_NTASKS XXX --restart -v 1 --pin --cosmology --eagle --threads=$SLURM_CPUS_PER_TASK --velociraptor params.yml
 
 echo "Job done, info follows..."
 sacct -j $SLURM_JOBID --format=JobID,JobName,Partition,AveRSS,MaxRSS,AveVMSize,MaxVMSize,Elapsed,ExitCode
-exit

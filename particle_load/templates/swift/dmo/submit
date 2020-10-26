@@ -23,4 +23,3 @@ mpirun -np $SLURM_NTASKS XXX -v 1 --pin --cosmology --self-gravity --threads=$SL
 
 echo "Job done, info follows..."
 sacct -j $SLURM_JOBID --format=JobID,JobName,Partition,AveRSS,MaxRSS,AveVMSize,MaxVMSize,Elapsed,ExitCode
-exit
