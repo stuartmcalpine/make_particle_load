@@ -33,6 +33,7 @@ make_swift_param_files: True
 swift_dir:             /cosma7/data/dp004/dc-alta2/xl-zooms/dmo/
 swift_exec_location:   /cosma7/data/dp004/dc-alta2/xl-zooms/dmo/swiftsim/examples/swift
 n_nodes_swift:         1                    # How many nodes you want to sun SWIFT on
+template_set:          dmo                  # Choose the set where to get SWIFT parameter files from (dmo or eaglexl)
 
 # EMBEDDED VELOCIRAPTOR #
 structure_finding:   False

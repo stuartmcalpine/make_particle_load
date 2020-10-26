@@ -30,7 +30,7 @@ Snapshots:
   delta_time:          1.02
   scale_factor_first:  0.02
   output_list_on:      1
-  output_list:         ./config/snap_redshifts.txt
+  output_list:         ./snap_redshifts.txt
   invoke_stf:          0
   compression:         9
   subdir:              snapshots 

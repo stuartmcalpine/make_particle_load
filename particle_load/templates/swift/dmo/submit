@@ -2,7 +2,8 @@
 
 #SBATCH --ntasks=XXX
 #SBATCH -J XXX
-#SBATCH --output=out_files/log_%j.txt
+#SBATCH -o ./out_files/%x.%J.swift.out
+#SBATCH -e ./out_files/%x.%J.swift.err
 #SBATCH -p cosma7
 #SBATCH -A dp004
 #SBATCH --exclusive
