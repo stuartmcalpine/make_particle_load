@@ -3,7 +3,6 @@ import os
 import sys
 import re
 from shutil import copyfile
-from numpy import ndarray
 from yaml import load
 from typing import List
 import subprocess
@@ -187,6 +186,8 @@ def make_particle_load_from_list() -> None:
             os.path.join(this_file_directory, args.template_slurm),
             os.path.join(out_dir, os.path.basename(args.template_slurm))
         )
+    if not os.path.isdir(os.path.join(out_dir, 'logs')):
+        os.mkdir(os.path.join(out_dir, 'logs'))
 
     for mask_filepath in get_mask_paths_list():
 
