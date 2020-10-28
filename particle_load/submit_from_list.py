@@ -82,7 +82,7 @@ parser.add_argument(
     '--particle-load-library',
     action='store',
     type=str,
-    default=os.path.join(os.path.split(this_file_directory)[0], 'Generate_PL.py'),
+    default=os.path.join(this_file_directory, 'Generate_PL.py'),
     required=False,
     help=(
         "If this script is not located in the same directory as the `Generate_PL.py` code, you can import "
