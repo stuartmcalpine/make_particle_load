@@ -142,7 +142,7 @@ def make_param_file_swift(dir, omega0, omegaL, omegaB, h, starting_z,
         '%.8f'%omegaB, fname, '%.8f'%(eps_dm/h),
         '%.8f'%(eps_baryon/h), '%.8f'%(eps_dm_physical/h),
         '%.8f'%(eps_baryon_physical/h), '%.3f'%(softening_ratio_background), 
-        '%.8f'%split_mass, fname]
+        '%.8f'%split_mass, ic_dir, fname]
     else:
         raise ValueError("Invalid template set")
 
