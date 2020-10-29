@@ -31,6 +31,8 @@ Snapshots:
   scale_factor_first:  0.02
   output_list_on:      1
   output_list:         ./snap_redshifts.txt
+  select_output_on:    1
+  select_output:       ./select_output.yml
   invoke_stf:          0
   compression:         9
   subdir:              snapshots
