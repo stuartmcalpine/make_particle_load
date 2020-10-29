@@ -91,7 +91,7 @@ Restarts:
   onexit:             1
   subdir:             restart    # Sub-directory of the directory where SWIFT is run
   basename:           swift
-  delta_hours:        4.0
+  delta_hours:        5.0
   stop_steps:         100
   max_run_time:       71.5       # In hours
   resubmit_on_exit:   1
