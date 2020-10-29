@@ -3,7 +3,7 @@
 
 # RECOMMENDATIONS #
 # Resolution     n_particles      n_cores_ic_gen
-# 1/8x EAGLE     11466731375      56
+# 1/8x EAGLE     11451483064      56
 #   1x EAGLE     91611864512      112
 #   8x EAGLE     732894916096     392
 
