@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+import stat
 import re
 from shutil import copyfile
 from yaml import load
@@ -226,6 +227,10 @@ def make_particle_load_from_list() -> None:
             print(f"Submitting IC_Gen.x at {ic_submit_dir}")
         else:
             replace_pattern('ICGEN_SUBMIT', '', particle_load_submit)
+
+        # Change execution privileges (make files executable by group)
+        # Assumes the files already exist. If not, it has no effect.
+        os.chmod(f"{particle_load_submit}", stat.S_IRWXG)
 
         if not args.dry:
             old_cwd = os.getcwd()
