@@ -1,4 +1,5 @@
-import numpy as np
+import stat
+import sys
 import re
 import os
 import subprocess
@@ -181,4 +182,10 @@ def make_submit_file_swift(dir, fname, n_nodes, num_hours, template_set,
         f.write(re.sub('XXX', lambda m, i=iter(r): next(i), data))
 
     with open('%s/auto_resubmit'%data_dir, 'w') as f:
-        f.write('sbatch resubmit') 
+        f.write('sbatch resubmit')
+
+    # Change execution privileges (make files executable by group)
+    # Assumes the files already exist. If not, it has no effect.
+    os.chmod(f"{data_dir}/submit", stat.S_IRWXG)
+    os.chmod(f"{data_dir}/resubmit", stat.S_IRWXG)
+    os.chmod(f"{data_dir}/auto_resubmit", stat.S_IRWXG)
