@@ -1,4 +1,3 @@
-import stat
 import re
 import os
 import subprocess
@@ -26,7 +25,7 @@ def make_submit_file_ics(dir, fname, num_hours, ncores):
 
     # Change execution privileges (make file executable by group)
     # Assumes the files already exist. If not, it has no effect.
-    os.chmod(f"{ic_gen_dir}/submit.sh", stat.S_IRWXG)
+    os.chmod(f"{ic_gen_dir}/submit.sh", 0o744)
 
 def make_param_file_ics(dir, fname, n_sp, sp1_2_div, sp_2_3_div, boxsize,
         starting_z, ntot, x, y, z, L, nhi, is_zoom, panphasian_descriptor,
@@ -189,6 +188,6 @@ def make_submit_file_swift(dir, fname, n_nodes, num_hours, template_set,
 
     # Change execution privileges (make files executable by group)
     # Assumes the files already exist. If not, it has no effect.
-    os.chmod(f"{data_dir}/submit", stat.S_IRWXG)
-    os.chmod(f"{data_dir}/resubmit", stat.S_IRWXG)
-    os.chmod(f"{data_dir}/auto_resubmit", stat.S_IRWXG)
+    os.chmod(f"{data_dir}/submit", 0o744)
+    os.chmod(f"{data_dir}/resubmit", 0o744)
+    os.chmod(f"{data_dir}/auto_resubmit", 0o744)

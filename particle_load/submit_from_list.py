@@ -1,7 +1,6 @@
 import argparse
 import os
 import sys
-import stat
 import re
 from shutil import copyfile
 from yaml import load
@@ -230,7 +229,7 @@ def make_particle_load_from_list() -> None:
 
         # Change execution privileges (make files executable by group)
         # Assumes the files already exist. If not, it has no effect.
-        os.chmod(f"{particle_load_submit}", stat.S_IRWXG)
+        os.chmod(f"{particle_load_submit}", 0o744)
 
         if not args.dry:
             old_cwd = os.getcwd()
