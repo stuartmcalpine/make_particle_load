@@ -49,7 +49,7 @@ Gravity:
   use_tree_below_softening:         1
   allow_truncation_in_MAC:          1
   epsilon_fmm:                      0.001
-  mesh_side_length:                 1024
+  mesh_side_length:                 512
   comoving_DM_softening:            XXX # Comoving softening for DM (3.32 ckpc)
   comoving_baryon_softening:        XXX # Comoving softening for baryons (1.79 ckpc)
   max_physical_DM_softening:        XXX # Physical softening for DM (1.30 pkpc)
@@ -82,7 +82,7 @@ FOF:
   delta_time:                      1.00751     # Scale-factor ratio between consecutive FoF black hole seeding calls.
 
 Scheduler:
-  max_top_level_cells:   80
+  max_top_level_cells:   32
   cell_split_size:       200
   
 Restarts:
