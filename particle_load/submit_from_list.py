@@ -188,6 +188,8 @@ def make_particle_load_from_list() -> None:
     if not os.path.isdir(os.path.join(out_dir, 'logs')):
         os.mkdir(os.path.join(out_dir, 'logs'))
 
+    sbatch_calls = []
+
     for mask_filepath in get_mask_paths_list():
 
         # Construct particle load parameter file name
@@ -230,12 +232,17 @@ def make_particle_load_from_list() -> None:
         # Assumes the files already exist. If not, it has no effect.
         os.chmod(f"{particle_load_submit}", 0o744)
 
-        if not args.dry:
-            old_cwd = os.getcwd()
-            os.chdir(out_dir)
-            print(f"\nCalling:\ncd {os.getcwd()}\nsbatch {os.path.basename(particle_load_submit)}")
-            os.system(r"sbatch {0:s}".format(os.path.basename(particle_load_submit)))
-            os.chdir(old_cwd)
+        sbatch_calls.append(r"sbatch {0:s}".format(os.path.basename(particle_load_submit)))
+
+        # if not args.dry:
+        #     old_cwd = os.getcwd()
+        #     os.chdir(out_dir)
+        #     print(f"\nCalling:\ncd {os.getcwd()}\nsbatch {os.path.basename(particle_load_submit)}")
+        #     os.system(r"sbatch {0:s}".format(os.path.basename(particle_load_submit)))
+        #     os.chdir(old_cwd)
+
+    for i in sbatch_calls:
+        print(i)
 
 
 if __name__ == '__main__':
