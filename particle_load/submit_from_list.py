@@ -5,7 +5,6 @@ import re
 from shutil import copyfile
 from yaml import load
 from typing import List
-import subprocess
 
 this_file_directory = os.path.dirname(__file__)
 
@@ -234,7 +233,7 @@ def make_particle_load_from_list() -> None:
         if not args.dry:
             old_cwd = os.getcwd()
             os.chdir(out_dir)
-            subprocess.call(["sbatch", f"{os.path.basename(particle_load_submit)}"])
+            os.system(f"sbatch {os.path.basename(particle_load_submit)}")
             os.chdir(old_cwd)
 
 
