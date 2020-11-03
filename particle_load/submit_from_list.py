@@ -234,7 +234,7 @@ def make_particle_load_from_list() -> None:
             old_cwd = os.getcwd()
             os.chdir(out_dir)
             print(f"Calling:\ncd {os.getcwd()}\nsbatch {os.path.basename(particle_load_submit)}\n")
-            os.system(f"sbatch {os.path.basename(particle_load_submit)}")
+            os.system(r"sbatch {0:s}".format(os.path.basename(particle_load_submit)))
             os.chdir(old_cwd)
 
 
