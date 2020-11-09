@@ -30,7 +30,7 @@ Snapshots:
   delta_time:          1.02
   scale_factor_first:  0.02
   output_list_on:      1
-  output_list:         ../../snap_times
+  output_list:         ./snap_redshifts.txt
   invoke_stf:          0
   compression:         9
   subdir:              snapshots 
@@ -43,9 +43,15 @@ Statistics:
 # Restart files.
 Restarts:
   enable:             1
-  delta_hours:        4.0
-  max_run_time:       71.5         # In hours
+  save:               1          # Keep copies
   onexit:             1
+  subdir:             restart    # Sub-directory of the directory where SWIFT is run
+  basename:           swift
+  delta_hours:        4.0
+  stop_steps:         100
+  max_run_time:       71.5       # In hours
+  resubmit_on_exit:   1
+  resubmit_command:   ./auto_resubmit
 
 # Parameters for the self-gravity scheme
 Gravity:

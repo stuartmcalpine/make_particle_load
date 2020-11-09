@@ -1,39 +1,40 @@
 # This is a template parameter file for applying the particle load in generating zoom
 # initial conditions. It also interfaces to the Panphasia executable.
 
+# RECOMMENDATIONS #
+# Resolution     n_particles      n_cores_ic_gen
+# 1/8x EAGLE     11451483064      56
+#   1x EAGLE     91611864512      112
+#   8x EAGLE     732894916096     392
+
 # MASK FILE #
 mask_file:           PATH_TO_MASK
 
 # PARTICLE LOAD DEPOSITION #
-f_name:              FILENAME               # The save name for the initial conditions output file
-which_cosmology:     Planck2018             # Tha cosmology scheme used in Panphasia and in the ICs hdf5 file
+f_name:              FILENAME_-8res         # The save name for the initial conditions output file
+which_cosmology:     Planck2018             # The cosmology scheme used in Panphasia and in the ICs hdf5 file
 is_zoom:             1                      # Enter 1 if it is a zoom simulations, 0 otherwise
 n_species:           2                      # Number of particle species (2 for zooms: high-res and low-res)
 box_size:            202.98                 # Enter box-size in units of Mpc/h (h must be consistent with cosmology used)
-n_particles:         11466731375            # Number of particles if whole box was at target resolution
-glass_num:           1331                   # Particles in glass file
+n_particles:         11451483064            # Number of particles if whole box was at target resolution
+glass_num:           12167                  # Particles in glass file
 
 # PANPHASIA SET-UP #
 ic_dir:              /cosma7/data/dp004/dc-alta2/xl-zooms/ics/ic_gen/run/
-swift_ic_dir_loc:    /cosma7/data/dp004/dc-alta2/xl-zooms/ics/particle_load
+swift_ic_dir_loc:    ./ics/                 # Either absolute path or path relative to the SWIFT run
 panphasian_descriptor: "[Panph1,L18,(74412,22732,260484),S3,CH1799108544,EAGLE-XL_L0300_VOL1]"
 ndim_fft_start:      3
-n_cores_ic_gen:      48
+n_cores_ic_gen:      56
 use_ph_ids:          False
 make_ic_param_files: True
 
 # SWIFT PARAMETER FILE #
 make_swift_param_files: True
-swift_dir:             /cosma7/data/dp004/dc-alta2/xl-zooms/dmo
+swift_dir:             /cosma7/data/dp004/dc-alta2/xl-zooms/dmo/
 swift_exec_location:   /cosma7/data/dp004/dc-alta2/xl-zooms/dmo/swiftsim/examples/swift
+n_nodes_swift:         1                    # How many nodes you want to sun SWIFT on
+template_set:          dmo                  # Choose the set where to get SWIFT parameter files from (dmo or eaglexl)
 
 # EMBEDDED VELOCIRAPTOR #
 structure_finding:   False
 structure_finding_config: /path/to/velociraptor/configuration/file.cfg
-
-
-# TODO
-# The parameter `f_name` can be read directly from the mask file's hdf attributes.
-# For consistency, we should only parse in the mask file and the PL output filename
-# should be allocated automatically.
-

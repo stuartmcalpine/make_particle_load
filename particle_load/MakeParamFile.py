@@ -1,4 +1,3 @@
-import numpy as np
 import re
 import os
 import subprocess
@@ -23,6 +22,10 @@ def make_submit_file_ics(dir, fname, num_hours, ncores):
 
     with open('%s/submit.sh'%(ic_gen_dir), 'w') as f:
         f.write(re.sub('XXX', lambda m, i=iter(r): next(i), data))
+
+    # Change execution privileges (make file executable by group)
+    # Assumes the files already exist. If not, it has no effect.
+    os.chmod(f"{ic_gen_dir}/submit.sh", 0o744)
 
 def make_param_file_ics(dir, fname, n_sp, sp1_2_div, sp_2_3_div, boxsize,
         starting_z, ntot, x, y, z, L, nhi, is_zoom, panphasian_descriptor,
@@ -142,7 +145,7 @@ def make_param_file_swift(dir, omega0, omegaL, omegaB, h, starting_z,
         '%.8f'%omegaB, fname, '%.8f'%(eps_dm/h),
         '%.8f'%(eps_baryon/h), '%.8f'%(eps_dm_physical/h),
         '%.8f'%(eps_baryon_physical/h), '%.3f'%(softening_ratio_background), 
-        '%.8f'%split_mass, fname]
+        '%.8f'%split_mass, ic_dir, fname]
     else:
         raise ValueError("Invalid template set")
 
@@ -181,4 +184,10 @@ def make_submit_file_swift(dir, fname, n_nodes, num_hours, template_set,
         f.write(re.sub('XXX', lambda m, i=iter(r): next(i), data))
 
     with open('%s/auto_resubmit'%data_dir, 'w') as f:
-        f.write('sbatch resubmit') 
+        f.write('sbatch resubmit')
+
+    # Change execution privileges (make files executable by group)
+    # Assumes the files already exist. If not, it has no effect.
+    os.chmod(f"{data_dir}/submit", 0o744)
+    os.chmod(f"{data_dir}/resubmit", 0o744)
+    os.chmod(f"{data_dir}/auto_resubmit", 0o744)
