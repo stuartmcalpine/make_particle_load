@@ -222,11 +222,13 @@ class MakeMask:
             self.params['bs'] = float(snap.HEADER['BoxSize'])
             self.params['h_factor'] = 1.0
             self.params['length_unit'] = 'Mph/h'
+            self.params['redshift'] = snap.HEADER['Redshift']
         elif self.params['data_type'].lower() == 'swift':
             snap = read_swift(self.params['snap_file'])
             self.params['bs'] = float(snap.HEADER['BoxSize'])
             self.params['h_factor'] = float(snap.COSMOLOGY['h'])
             self.params['length_unit'] = 'Mpc'
+            self.params['redshift'] = snap.HEADER['Redshift']
 
         # A sphere with radius R.
         if self.params['shape'] == 'sphere':
@@ -245,6 +247,7 @@ class MakeMask:
                            self.params['coords'][2] - self.params['dim'][2] / 2.,
                            self.params['coords'][2] + self.params['dim'][2] / 2.]
         if comm_rank == 0:
+            print('Snapshot is at redshift z=%.2f'%self.params['redshift'])
             print('Loading region...\n', self.region)
         if self.params['data_type'].lower() == 'gadget':
             snap.select_region(*self.region)
@@ -540,8 +543,10 @@ class MakeMask:
                         axarr[count].set_ylim(lens[j * 2]-15, lens[j * 2]+1)
                         axarr[count].set_xlim(-lens[i * 2] - 1, lens[i * 2 + 1] + 1)
                 else:
-                    axarr[count].set_xlim(-lens[i * 2], lens[i * 2 + 1])
-                    axarr[count].set_ylim(-lens[j * 2], lens[j * 2 + 1])
+                    axarr[count].set_xlim(-lens[i * 2] - 0.05*lens[i * 2],
+                            lens[i * 2 + 1] + 0.05*lens[i * 2 + 1])
+                    axarr[count].set_ylim(-lens[j * 2] - 0.05*lens[j * 2],
+                            lens[j * 2 + 1] + 0.05*lens[j * 2 + 1])
 
                 # Plot cell bin centers.
                 axarr[count].scatter(

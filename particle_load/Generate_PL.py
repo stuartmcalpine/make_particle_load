@@ -699,7 +699,7 @@ class ParticleLoad:
             bounding_box = [2. * self.radius, 2. * self.radius, 2. * self.radius]
         return bounding_box
 
-    def compute_fft_stats(self, max_boxsize):
+    def compute_fft_stats(self, max_boxsize, all_ntot):
         """ Work out what size of FFT grid we need for the IC gen. """
         if self.is_zoom:
             if self.is_slab:
@@ -729,21 +729,50 @@ class ParticleLoad:
         # Number of cores must also be a factor of ndim_fft.
         nmaxpart = 36045928
         nmaxdisp = 791048437
+        print('--- Using nmaxpart= %i nmaxdisp= %i'%(nmaxpart, nmaxdisp))
+        self.compute_ic_cores_from_mem(nmaxpart, nmaxdisp, ndim_fft, all_ntot, optimal=False)
 
+        # What if we wanted the memory usage to be optimal?
+        self.compute_optimal_ic_mem(ndim_fft, all_ntot)
+
+    def compute_ic_cores_from_mem(self, nmaxpart, nmaxdisp, ndim_fft, all_ntot, optimal=False):
         ncores_ndisp = np.ceil(float((ndim_fft*ndim_fft * 2 * (ndim_fft/2+1))) / nmaxdisp)
-        ncores_npart = np.ceil(float(N**3) / nmaxpart)
+        ncores_npart = np.ceil(float(all_ntot) / nmaxpart)
         ncores = max(ncores_ndisp, ncores_npart)
         while (ndim_fft % ncores) != 0:
             ncores += 1
-
+  
         # If we're using one node, try to use as many of the cores as possible
         if ncores < self.ncores_node:
             ncores = self.ncores_node
             while (ndim_fft % ncores) != 0:
-                ncores -= 1 
-        print('--- Using %i cores for IC gen (min %i for FFT and min %i for particles)'%\
-                (ncores, ncores_ndisp, ncores_npart))
-        self.n_cores_ic_gen = ncores
+                ncores -= 1
+        this_str = '[Optimal] ' if optimal else '' 
+        print('--- %sUsing %i cores for IC gen (min %i for FFT and min %i for particles)'%\
+                (this_str, ncores, ncores_ndisp, ncores_npart))
+        if optimal == False: self.n_cores_ic_gen = ncores
+
+    def compute_optimal_ic_mem(self, ndim_fft, all_ntot):
+        """ This will compute the optimal memory to fit IC gen on cosma7. """
+        mem_per_core = 18.2e9           # Gb per core
+        cores_per_node = self.ncores_node
+
+        bytes_per_particle = 66.         
+        bytes_per_grid_cell = 20.
+
+        total_memory = (66*all_ntot) + (20*ndim_fft**3.)
+
+        frac = 66*all_ntot / total_memory
+        nmaxpart = (frac * mem_per_core) / bytes_per_particle
+
+        frac = 20*(ndim_fft**3.) / total_memory
+        nmaxdisp = (frac * mem_per_core) / bytes_per_grid_cell
+       
+        total_cores = total_memory/mem_per_core
+
+        print("--- [Optimal] nmaxpart= %i nmaxdisp= %i"%(nmaxpart, nmaxdisp))
+
+        self.compute_ic_cores_from_mem(nmaxpart, nmaxdisp, ndim_fft, all_ntot, optimal=True)
 
     def make_particle_load(self):
 
@@ -761,7 +790,7 @@ class ParticleLoad:
         if self.is_zoom:
             bounding_box = self.load_mask_file()
 
-            # |----------------------------------------|
+        # |----------------------------------------|
         # | First compute the high resolution grid |
         # |----------------------------------------|
 
@@ -886,7 +915,7 @@ class ParticleLoad:
                     print('--- Target number of ps %i (%.2f cubed), made %.2f times as many.' % \
                           (n_particles_target, n_particles_target ** (1 / 3.),
                            np.true_divide(all_ntot, n_particles_target)))
-            self.compute_fft_stats(max_boxsize)
+            self.compute_fft_stats(max_boxsize, all_ntot)
             print('--- Total number of particles %i (%.2f cubed)' % \
                   (all_ntot, all_ntot ** (1 / 3.)))
             print('--- Total memory per rank HR grid=%.6f Gb, total of particles=%.6f Gb' % \
