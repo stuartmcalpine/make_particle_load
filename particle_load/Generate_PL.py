@@ -110,6 +110,11 @@ class ParticleLoad:
         # Is DM only? (Only important for softenings).
         self.dm_only = False
 
+        # Memory setup for IC gen code.
+        # These need to be set to what you have compiled the IC gen code with.
+        self.nmaxpart = 36045928
+        self.nmaxdisp = 791048437
+
         # What type of IDs to use.
         self.use_ph_ids = True
         self.nbit = 21  # 14 for EAGLE
@@ -729,8 +734,9 @@ class ParticleLoad:
         # Number of cores must also be a factor of ndim_fft.
         nmaxpart = 36045928
         nmaxdisp = 791048437
-        print('--- Using nmaxpart= %i nmaxdisp= %i'%(nmaxpart, nmaxdisp))
-        self.compute_ic_cores_from_mem(nmaxpart, nmaxdisp, ndim_fft, all_ntot, optimal=False)
+        print('--- Using nmaxpart= %i nmaxdisp= %i'%(self.nmaxpart, self.nmaxdisp))
+        self.compute_ic_cores_from_mem(self.nmaxpart, self.nmaxdisp, ndim_fft, all_ntot,
+                optimal=False)
 
         # What if we wanted the memory usage to be optimal?
         self.compute_optimal_ic_mem(ndim_fft, all_ntot)
