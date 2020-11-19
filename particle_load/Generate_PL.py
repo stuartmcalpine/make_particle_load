@@ -759,17 +759,16 @@ class ParticleLoad:
 
     def compute_optimal_ic_mem(self, ndim_fft, all_ntot):
         """ This will compute the optimal memory to fit IC gen on cosma7. """
-        cores_per_node = self.ncores_node
 
         bytes_per_particle = 66.         
         bytes_per_grid_cell = 20.
 
-        total_memory = (66*all_ntot) + (20*ndim_fft**3.)
+        total_memory = (bytes_per_particle*all_ntot) + (bytes_per_grid_cell*ndim_fft**3.)
 
-        frac = 66*all_ntot / total_memory
+        frac = (bytes_per_particle*all_ntot) / total_memory
         nmaxpart = (frac * self.mem_per_core) / bytes_per_particle
 
-        frac = 20*(ndim_fft**3.) / total_memory
+        frac = (bytes_per_grid_cell*ndim_fft**3.) / total_memory
         nmaxdisp = (frac * self.mem_per_core) / bytes_per_grid_cell
        
         total_cores = total_memory/self.mem_per_core
