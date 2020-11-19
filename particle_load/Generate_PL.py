@@ -114,7 +114,7 @@ class ParticleLoad:
         # These need to be set to what you have compiled the IC gen code with.
         self.nmaxpart = 36045928
         self.nmaxdisp = 791048437
-        self.mem_per_code = 18.2e9
+        self.mem_per_core = 18.2e9
 
         # What type of IDs to use.
         self.use_ph_ids = True
