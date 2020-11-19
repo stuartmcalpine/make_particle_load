@@ -114,6 +114,7 @@ class ParticleLoad:
         # These need to be set to what you have compiled the IC gen code with.
         self.nmaxpart = 36045928
         self.nmaxdisp = 791048437
+        self.mem_per_code = 18.2e9
 
         # What type of IDs to use.
         self.use_ph_ids = True
@@ -732,8 +733,6 @@ class ParticleLoad:
 
         # Determine number of cores to use based on memory requirements.
         # Number of cores must also be a factor of ndim_fft.
-        nmaxpart = 36045928
-        nmaxdisp = 791048437
         print('--- Using nmaxpart= %i nmaxdisp= %i'%(self.nmaxpart, self.nmaxdisp))
         self.compute_ic_cores_from_mem(self.nmaxpart, self.nmaxdisp, ndim_fft, all_ntot,
                 optimal=False)
@@ -760,7 +759,6 @@ class ParticleLoad:
 
     def compute_optimal_ic_mem(self, ndim_fft, all_ntot):
         """ This will compute the optimal memory to fit IC gen on cosma7. """
-        mem_per_core = 18.2e9           # Gb per core
         cores_per_node = self.ncores_node
 
         bytes_per_particle = 66.         
@@ -769,12 +767,12 @@ class ParticleLoad:
         total_memory = (66*all_ntot) + (20*ndim_fft**3.)
 
         frac = 66*all_ntot / total_memory
-        nmaxpart = (frac * mem_per_core) / bytes_per_particle
+        nmaxpart = (frac * self.mem_per_core) / bytes_per_particle
 
         frac = 20*(ndim_fft**3.) / total_memory
-        nmaxdisp = (frac * mem_per_core) / bytes_per_grid_cell
+        nmaxdisp = (frac * self.mem_per_core) / bytes_per_grid_cell
        
-        total_cores = total_memory/mem_per_core
+        total_cores = total_memory/self.mem_per_core
 
         print("--- [Optimal] nmaxpart= %i nmaxdisp= %i"%(nmaxpart, nmaxdisp))
 
