@@ -134,6 +134,9 @@ def make_param_file_swift(dir, omega0, omegaL, omegaB, h, starting_z,
         '%.8f'%omegaB, fname, '%.8f'%(eps_dm/h),
         '%.8f'%(eps_baryon/h), '%.3f'%(softening_ratio_background),
         '%.8f'%(eps_baryon_physical/h), '%.8f'%(eps_dm_physical/h), fname]
+
+        subprocess.call("cp ./templates/swift/%s/select_output.yml %s"%\
+                (template_set, data_dir), shell=True)
     elif template_set.lower() == 'dmo':
         r = ['%.5f'%h, '%.8f'%starting_a, '%.8f'%finishing_a, '%.8f'%omega0, '%.8f'%omegaL,
         '%.8f'%omegaB, fname, '%.8f'%(eps_dm/h),
