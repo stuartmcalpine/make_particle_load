@@ -101,7 +101,7 @@ class ParticleLoad:
         self.min_num_per_cell = 8  # Min number of particles in high res cell (must be cube).
         self.radius_factor = 1.
         self.glass_buffer_cells = 2  # Number of buffer cells on each side (must be even, eg. 2 = 1 on each side)
-        self.ic_region_buffer_frac = 1.25  # 25% (buffer for FFT grid during ICs).
+        self.ic_region_buffer_frac = 1.  # Buffer for FFT grid during ICs.
 
         # Default starting and finishing redshifts.
         self.starting_z = 127.0
@@ -714,12 +714,29 @@ class ParticleLoad:
             else:
                 self.high_res_L = self.ic_region_buffer_frac * max_boxsize
                 assert self.high_res_L < self.box_size, 'Zoom buffer region too big'
-                self.high_res_n_eff = int(self.n_particles * (self.high_res_L**3./self.box_size**3.))
+                self.high_res_n_eff \
+                        = int(self.n_particles * (self.high_res_L**3./self.box_size**3.))
             print('--- HRgrid c=%s L_box=%.2f Mpc/h'%(self.coords, self.box_size))
-            print('--- HRgrid L_grid=%.2f Mpc/h n_eff=%i (%.2f cub,2x=%.2f) FFT buff frac= %.2f'\
-                    %(self.high_res_L, self.high_res_n_eff,
-                  self.high_res_n_eff**(1/3.), 2.*self.high_res_n_eff**(1/3.),
-                  self.ic_region_buffer_frac))
+            print('--- HRgrid L_grid=%.2f Mpc/h n_eff=%.2f**3 (x2=%.2f**3) FFT buff frac= %.2f'\
+                    %(self.high_res_L, self.high_res_n_eff**(1/3.),
+                        2.*self.high_res_n_eff**(1/3.), self.ic_region_buffer_frac))
+
+            # How many multi grid FFT levels, this will update n_eff?
+            if self.multigrid_ics:
+                if self.high_res_L > self.box_size/2.:
+                    raise Exception("Should not use multi grid when zoom region is > boxsize/2.")
+                else:
+                    nlevels = 0
+                    while self.box_size / (2.**(nlevels+1)) > self.high_res_L:
+                        nlevels += 1
+                    actual_high_res_L = self.box_size/(2.**nlevels)
+                    assert actual_high_res_L > self.high_res_L, 'Incorrect actual high_res_L'
+                    self.high_res_n_eff = \
+                            int(self.n_particles * (actual_high_res_L**3./self.box_size**3))
+                        
+                    print('--- HRgrid num multigrids=%i, lowest=%.2f Mpc/h n_eff: %.2f**3 (x2 %.2f**3)'\
+                            %(nlevels,actual_high_res_L,self.high_res_n_eff**(1/3.),
+                                2*self.high_res_n_eff**(1/3.)))
         else:
             self.high_res_n_eff = self.n_particles
             self.high_res_L = self.box_size
