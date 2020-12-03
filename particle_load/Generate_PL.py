@@ -96,7 +96,7 @@ class ParticleLoad:
         self.ic_dir = './ic_gen_output/'
 
         # Params for hi res grid.
-        self.nq_mass_reduce_factor = 0.5  # Mass of first nq level relative to grid
+        self.nq_mass_reduce_factor = 1 / 2.  # Mass of first nq level relative to grid
         self.skin_reduce_factor = 1 / 8.  # What factor do high res skins reduce by.
         self.min_num_per_cell = 8  # Min number of particles in high res cell (must be cube).
         self.radius_factor = 1.
@@ -703,7 +703,7 @@ class ParticleLoad:
         else:
             raise Exception("Test this")
             bounding_box = [2. * self.radius, 2. * self.radius, 2. * self.radius]
-        return bounding_box
+        return np.array(bounding_box)
 
     def compute_fft_stats(self, max_boxsize, all_ntot):
         """ Work out what size of FFT grid we need for the IC gen. """
@@ -816,7 +816,8 @@ class ParticleLoad:
 
         # Number of glass cells that fill a box (on a side).
         n_cells = int(np.rint((self.n_particles / self.glass_num) ** (1 / 3.)))
-        assert n_cells ** 3 * self.glass_num == self.n_particles, 'Error creating high res cell sizes'
+        assert n_cells ** 3 * self.glass_num == self.n_particles,\
+                'Error creating high res cell sizes'
         cell_length = np.true_divide(self.box_size, n_cells)  # Mpc/h
         if comm_rank == 0:
             print('\n------ High res grid ------')
