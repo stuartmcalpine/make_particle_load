@@ -300,8 +300,7 @@ class MakeMask:
         print(f'[Rank {comm_rank}] Clipped to {len(ids)} dark matter particles')
 
         # Put back into original IDs.
-        if self.params['divide_ids_by_two']:
-            ids /= 2
+        if self.params['divide_ids_by_two']: ids = ids // 2
 
         return ids, coords
 
