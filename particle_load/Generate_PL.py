@@ -97,10 +97,10 @@ class ParticleLoad:
 
         # Params for hi res grid.
         self.nq_mass_reduce_factor = 1 / 2.  # Mass of first nq level relative to grid
-        self.skin_reduce_factor = 1 / 8.  # What factor do high res skins reduce by.
+        self.skin_reduce_factor = 1 / 2.  # What factor do high res skins reduce by.
         self.min_num_per_cell = 8  # Min number of particles in high res cell (must be cube).
         self.radius_factor = 1.
-        self.glass_buffer_cells = 2  # Number of buffer cells on each side (must be even, eg. 2 = 1 on each side)
+        self.glass_buffer_cells = 4  # Number of buffer cells on each side (must be even, eg. 2 = 1 on each side)
         self.ic_region_buffer_frac = 1.  # Buffer for FFT grid during ICs.
 
         # Default starting and finishing redshifts.
