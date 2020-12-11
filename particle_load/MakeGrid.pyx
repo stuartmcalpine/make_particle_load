@@ -50,8 +50,7 @@ cdef make_grid(int n_cells_x, int n_cells_y, int n_cells_z, int comm_rank, int c
 cdef assign_mask_cells(ndarray[int32_t, ndim=1] cell_types,
         ndarray[float64_t, ndim=2] mask_coords,
         ndarray[float64_t, ndim=2] offsets, double cell_width,
-        ndarray[int32_t, ndim=1] cell_nos,
-        int L):
+        ndarray[int32_t, ndim=1] cell_nos):
     """ For a given list of coords, see what cells they fill up. """
 
     cdef int num_cells = len(cell_types)
@@ -70,8 +69,6 @@ cdef assign_mask_cells(ndarray[int32_t, ndim=1] cell_types,
             if mask_coords[j,2] - half_cell > offsets[i,2] + 1.0: continue
             cell_types[i] = 0
             break
-
-    #create_skins(cell_types, L)
 
 cdef find_skin_cells(ndarray[int32_t, ndim=1] cell_types,
         ndarray[int32_t, ndim=1] cell_nos, int L, int cell_type):
@@ -270,8 +267,8 @@ def get_find_skin_cells(cell_types, cell_nos, L, cell_type):
 def get_guess_nq(lbox, nq, extra, comm_rank, comm_size):
     return _guess_nq(lbox, nq, extra, comm_rank, comm_size)
 
-def get_assign_mask_cells(cell_types, cell_coords, offsets, cell_width, cell_nos, L):
-    return assign_mask_cells(cell_types, cell_coords, offsets, cell_width, cell_nos, L)
+def get_assign_mask_cells(cell_types, cell_coords, offsets, cell_width, cell_nos):
+    return assign_mask_cells(cell_types, cell_coords, offsets, cell_width, cell_nos)
 
 def get_layered_particles_slab(slab_width, boxsize, nq, nlev, dv, comm_rank, comm_size,
         n_tot_lo, n_tot_hi, coords_x, coords_y, coords_z, masses, nq_reduce, extra):
