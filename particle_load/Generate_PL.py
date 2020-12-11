@@ -115,6 +115,7 @@ class ParticleLoad:
         self.nmaxpart = 36045928
         self.nmaxdisp = 791048437
         self.mem_per_core = 18.2e9
+        self.max_particles_per_ic_file = 2**31
 
         # What type of IDs to use.
         self.use_ph_ids = True
@@ -942,8 +943,8 @@ class ParticleLoad:
             print('--- Total memory per rank HR grid=%.6f Gb, total of particles=%.6f Gb' % \
                   (self.size_of_HR_grid_arrays / 1024. / 1024. / 1024.,
                    (4 * all_ntot * 8. / 1024. / 1024. / 1024.)))
-            print('--- Num ranks needed for < 400**3 per rank = %.2f' % \
-                  (np.true_divide(all_ntot, 400 ** 3.)))
+            print('--- Num ranks needed for < 2**31 per rank = %.2f' % \
+                  (np.true_divide(all_ntot, self.max_particles_per_ic_file)))
         if self.only_calc_ntot:
             sys.exit()
 
@@ -1280,8 +1281,8 @@ class ParticleLoad:
                 tmp_num_per_file = ndesired[0] ** (1 / 3.)
                 print('Load balancing %i particles on %i ranks (%.2f**3 per file)...' \
                       % (ntot, comm_size, tmp_num_per_file))
-                if tmp_num_per_file > 400.:
-                    print("***WARNING*** more than 400**3 per file***")
+                if tmp_num_per_file > self.max_particles_per_ic_file:
+                    print("***WARNING*** more than 2**31 per file***")
 
             masses = repartition(masses, ndesired, comm, comm_rank, comm_size)
             coords_x = repartition(coords_x, ndesired, comm, comm_rank, comm_size)
