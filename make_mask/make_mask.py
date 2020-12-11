@@ -333,27 +333,6 @@ class MakeMask:
         ic_coords = np.mod(ic_coords - self.params['coords'] + 0.5 * self.params['bs'],
                            self.params['bs']) + self.params['coords'] - 0.5 * self.params['bs']
 
-        # Find COM of the lagrangian region.
-        count = 0
-        last_com_coords = np.array([self.params['bs'] / 2., self.params['bs'] / 2., self.params['bs'] / 2.])
-
-        while True:
-            com_coords = self.get_com(ic_coords, self.params['bs'])
-            if comm_rank == 0:
-                print(f'COM iteration {count} c: {com_coords} Mpc/h')
-            ic_coords = np.mod(ic_coords - com_coords + 0.5 * self.params['bs'],
-                               self.params['bs']) + com_coords - 0.5 * self.params['bs']
-            if np.sum(np.abs(com_coords - last_com_coords)) <= 1e-6:
-                break
-            last_com_coords = com_coords
-            count += 1
-            if (count > 10) or (self.params['shape'] == 'slab'):
-                break
-        if comm_rank == 0:
-            print('COM of lagrangian region %s Mpc/h\n\t(compared to coords %s Mpc/h)' \
-                  % (com_coords, self.params['coords']))
-        ic_coords -= com_coords
-
         # Compute outline of histogram region.
         if len(ic_coords) == 0:
             outline_min_x = outline_min_y = outline_min_z = 1.e20
@@ -374,11 +353,18 @@ class MakeMask:
         outline_min_z = comm.allreduce(outline_min_z, op=MPI.MIN)
         outline_max_z = comm.allreduce(outline_max_z, op=MPI.MAX)
 
+        dx = outline_max_x - outline_min_x
+        dy = outline_max_y - outline_min_y
+        dz = outline_max_z - outline_min_z
+
+        # Put coordinates relative to geometric center.
+        geo_centre = np.array([outline_min_x + dx/2.,
+                               outline_min_y + dy/2.,
+                               outline_min_z + dz/2.])
+        ic_coords -= geo_centre
+
         # Start with coordinates boundary.
-        ic_coord_outline_width = np.max(
-            [outline_max_x - outline_min_x,
-             outline_max_y - outline_min_y,
-             outline_max_z - outline_min_z])
+        ic_coord_outline_width = np.max([dx,dy,dz])
 
         # Region can be buffered, x2 to be safe.
         ic_coord_outline_width *= 2
@@ -457,37 +443,46 @@ class MakeMask:
         # Computing bounding region
         m = np.where(bin_mask == True)
         lens = np.array([
-            np.abs(np.min(edges[0][m[0]])),
+            np.min(edges[0][m[0]]),
             np.max(edges[0][m[0]]) + bin_width,
-            np.abs(np.min(edges[1][m[1]])),
+            np.min(edges[1][m[1]]),
             np.max(edges[1][m[1]]) + bin_width,
-            np.abs(np.min(edges[2][m[2]])),
+            np.min(edges[2][m[2]]),
             np.max(edges[2][m[2]]) + bin_width
         ])
+        dx = np.max((np.abs(lens[0])*2, np.abs(lens[1])*2))
+        dy = np.max((np.abs(lens[2])*2, np.abs(lens[3])*2))
+        dz = np.max((np.abs(lens[4])*2, np.abs(lens[5])*2))
+
+        bounding_length = np.max([dx,dy,dz])
 
         if comm_rank == 0:
             print(
                 f"Encompassing dimensions:\n"
-                f"\tx = {(lens[0] + lens[1]):.4f} Mpc/h\n"
-                f"\ty = {(lens[2] + lens[3]):.4f} Mpc/h\n"
-                f"\tz = {(lens[4] + lens[5]):.4f} Mpc/h"
+                f"\tx = {dx:.4f} Mpc/h\n"
+                f"\ty = {dy:.4f} Mpc/h\n"
+                f"\tz = {dz:.4f} Mpc/h\n"
+                f"Bounding length: {bounding_length:.4f} Mpc/h"
             )
 
-            lens_volume = (lens[0] + lens[1]) * (lens[2] + lens[3]) *\
-                (lens[4] + lens[5])
+            lens_volume = dx*dy*dz
             tot_cells = len(H[0][m[0]])
             tot_cells_volume = tot_cells * bin_width**3.
             print(f'There are {tot_cells:d} total mask cells.')
             print(f'Cells fill {tot_cells_volume/lens_volume:.8f} per cent of region.')
 
+        # Make sure everything is in the bounding box.
+        assert np.all(np.abs(ic_coords)+bin_width/2. <= bounding_length/2.),\
+                'Not everything in bounding box'
+
         # Plot the mask and the ameba
-        self.plot(H, edges, bin_width, m, ic_coords, lens)
+        self.plot(H, edges, bin_width, m, ic_coords, bounding_length)
 
         # Save the mask to hdf5
         if comm_rank == 0:
-            self.save(H, edges, bin_width, m, lens, com_coords)
+            self.save(H, edges, bin_width, m, bounding_length, geo_centre)
 
-    def plot(self, H, edges, bin_width, m, ic_coords, lens):
+    def plot(self, H, edges, bin_width, m, ic_coords, bounding_length):
         """ Plot the region outline. """
         axes_label = ['x', 'y', 'z']
 
@@ -523,10 +518,8 @@ class MakeMask:
                 if self.params['shape'] != 'slab': axarr[count].set_aspect('equal')
 
                 # This outlines the bounding region.
-                rect = patches.Rectangle(
-                    (-lens[i * 2], -lens[j * 2]),
-                    lens[i * 2 + 1] + lens[i * 2],
-                    lens[j * 2 + 1] + lens[j * 2],
+                rect = patches.Rectangle([-bounding_length/2., -bounding_length/2.],
+                    bounding_length, bounding_length,
                     linewidth=1, edgecolor='r', facecolor='none'
                 )
 
@@ -535,17 +528,16 @@ class MakeMask:
                         zorder=9, alpha=0.5)
                 axarr[count].add_patch(rect)
                 if self.params['shape'] == 'slab':
-                    if count > 1:
-                        axarr[count].set_ylim(-lens[j * 2]+15, -lens[j * 2]-1)
-                        axarr[count].set_xlim(-lens[i * 2] - 1, lens[i * 2 + 1] + 1)
-                    else:
-                        axarr[count].set_ylim(lens[j * 2]-15, lens[j * 2]+1)
-                        axarr[count].set_xlim(-lens[i * 2] - 1, lens[i * 2 + 1] + 1)
+                    pass
+                    #if count > 1:
+                    #    axarr[count].set_ylim(-lens[j * 2]+15, -lens[j * 2]-1)
+                    #    axarr[count].set_xlim(-lens[i * 2] - 1, lens[i * 2 + 1] + 1)
+                    #else:
+                    #    axarr[count].set_ylim(lens[j * 2]-15, lens[j * 2]+1)
+                    #    axarr[count].set_xlim(-lens[i * 2] - 1, lens[i * 2 + 1] + 1)
                 else:
-                    axarr[count].set_xlim(-lens[i * 2] - 0.05*lens[i * 2],
-                            lens[i * 2 + 1] + 0.05*lens[i * 2 + 1])
-                    axarr[count].set_ylim(-lens[j * 2] - 0.05*lens[j * 2],
-                            lens[j * 2 + 1] + 0.05*lens[j * 2 + 1])
+                    axarr[count].set_xlim(-(bounding_length/2.)*1.05, (bounding_length/2.)*1.05)
+                    axarr[count].set_ylim(-(bounding_length/2.)*1.05, (bounding_length/2.)*1.05)
 
                 # Plot cell bin centers.
                 axarr[count].scatter(
@@ -583,7 +575,7 @@ class MakeMask:
             plt.savefig(f"{self.params['output_dir']}/{self.params['fname']:s}.png")
             plt.close()
 
-    def save(self, H, edges, bin_width, m, lens, com_coords):
+    def save(self, H, edges, bin_width, m, bounding_length, geo_centre):
         # Save (everything needs to be saved in h inverse units, for the IC GEN).
         f = h5py.File(f"{self.params['output_dir']}/{self.params['fname']:s}.hdf5", 'w')
         coords = np.c_[edges[0][m[0]] + bin_width / 2.,
@@ -596,14 +588,8 @@ class MakeMask:
             g.attrs.create(param_attr, self.params[param_attr])
 
         ds = f.create_dataset('Coordinates', data=np.array(coords, dtype='f8'))
-        ds.attrs.create('xlen_lo', lens[0])
-        ds.attrs.create('xlen_hi', lens[1])
-        ds.attrs.create('ylen_lo', lens[2])
-        ds.attrs.create('ylen_hi', lens[3])
-        ds.attrs.create('zlen_lo', lens[4])
-        ds.attrs.create('zlen_hi', lens[5])
-        ds.attrs.create('coords', self.params['coords'])
-        ds.attrs.create('com_coords', com_coords)
+        ds.attrs.create('bounding_length', bounding_length)
+        ds.attrs.create('geo_centre', geo_centre)
         ds.attrs.create('grid_cell_width', bin_width)
         if self.params['shape'] == 'cuboid' or self.params['shape'] == 'slab':
             high_res_volume = self.params['dim'][0] * self.params['dim'][1] * self.params['dim'][2]
@@ -612,18 +598,6 @@ class MakeMask:
         ds.attrs.create('high_res_volume', high_res_volume)
         f.close()
         print(f"Saved {self.params['output_dir']}/{self.params['fname']:s}.hdf5")
-
-    def get_com(self, ic_coords, bs):
-        """ Find centre of mass for passed coordinates. """
-        if self.params['shape'] == 'slab':
-            com_x = bs / 2.
-            com_y = bs / 2.
-        else:
-            com_x = comm.allreduce(np.sum(ic_coords[:, 0])) / comm.allreduce(len(ic_coords[:, 0]))
-            com_y = comm.allreduce(np.sum(ic_coords[:, 1])) / comm.allreduce(len(ic_coords[:, 1]))
-        com_z = comm.allreduce(np.sum(ic_coords[:, 2])) / comm.allreduce(len(ic_coords[:, 2]))
-        return np.array([com_x, com_y, com_z])
-
 
 if __name__ == '__main__':
     x = MakeMask(sys.argv[1])
