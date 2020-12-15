@@ -45,18 +45,16 @@ Statistics:
  
 # Restart files.
 Restarts:
-  enable:             1
-  delta_hours:        6.0
-  max_run_time:       71.5         # In hours
-  onexit:             1
+  enable:               1
+  delta_hours:          6.0
+  max_run_time:         71.5         # In hours
+  onexit:               1
 
 # Parameters for the self-gravity scheme
 Gravity:
   eta:                              0.025         
   comoving_DM_softening:            XXX
-  comoving_baryon_softening:        XXX
   softening_ratio_background:       XXX
-  max_physical_baryon_softening:    XXX
   max_physical_DM_softening:        XXX
   mesh_side_length:                 1024
   MAC:                              adaptive
@@ -72,10 +70,3 @@ InitialConditions:
   cleanup_h_factors:           1    
   cleanup_velocity_factors:    1  
   remap_ids:                   1
-
-StructureFinding:
-  config_file_name:         ../../vrconfig_3dfof_subhalos_sibelius.cfg
-  basename:                 stf
-  output_list_on:           1
-  output_list:              ../../stf_times_a.txt
-  subdir_per_output:        stf
