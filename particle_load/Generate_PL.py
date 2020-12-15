@@ -12,6 +12,7 @@ from mpi4py import MPI
 from ParallelFunctions import repartition
 from MakeGrid import *
 from MakeParamFile import *
+from scipy.io import FortranFile
 
 comm = MPI.COMM_WORLD
 comm_rank = comm.Get_rank()
@@ -96,12 +97,12 @@ class ParticleLoad:
         self.ic_dir = './ic_gen_output/'
 
         # Params for hi res grid.
-        self.nq_mass_reduce_factor = 1 / 2.  # Mass of first nq level relative to grid
-        self.skin_reduce_factor = 1 / 2.  # What factor do high res skins reduce by.
-        self.min_num_per_cell = 8  # Min number of particles in high res cell (must be cube).
-        self.radius_factor = 1.
-        self.glass_buffer_cells = 4  # Number of buffer cells on each side (must be even, eg. 2 = 1 on each side)
-        self.ic_region_buffer_frac = 1.  # Buffer for FFT grid during ICs.
+        self.nq_mass_reduce_factor  = 1 / 2.    # Mass of first nq level relative to grid
+        self.skin_reduce_factor     = 1 / 8.    # What factor do high res skins reduce by.
+        self.min_num_per_cell       = 8         # Min number of particles in high res cell (must be cube).
+        self.radius_factor          = 1.
+        self.glass_buffer_cells     = 2         # Number of buffer cell skins.
+        self.ic_region_buffer_frac  = 1.        # Buffer for FFT grid during ICs.
 
         # Default starting and finishing redshifts.
         self.starting_z = 127.0
@@ -115,7 +116,7 @@ class ParticleLoad:
         self.nmaxpart = 36045928
         self.nmaxdisp = 791048437
         self.mem_per_core = 18.2e9
-        self.max_particles_per_ic_file = 2**31
+        self.max_particles_per_ic_file = 400**3
 
         # What type of IDs to use.
         self.use_ph_ids = True
@@ -146,7 +147,7 @@ class ParticleLoad:
         self.is_slab = False
 
         # Use glass files to surround the high res region rather than grids?
-        self.grid_also_glass = True
+        self.grid_also_glass = False 
         self.glass_files_dir = './glass_files/'
 
         # Softening for zooms.
@@ -214,7 +215,7 @@ class ParticleLoad:
         self.total_box_mass = M_tot_dm_dmo
         self.gas_particle_mass = comm.bcast(gas_mass)
 
-    def init_high_res(self, offsets, cell_nos, L):
+    def init_high_res(self, offsets, cell_nos, L, max_boxsize):
         """ Initialize the high resolution grid with the primary high resolution particles. """
         cell_types = np.ones(len(offsets), dtype='i4') * -1  # Should all get overwritten.
 
@@ -223,24 +224,27 @@ class ParticleLoad:
             # Using a mask file.
             if self.mask_file is not None:
                 # Rescale mask coords into grid coords.
-                self.mask_coords *= (self.radius_in_cells / self.radius)
+                mask_cell_centers = self.mask_params['coords'] / max_boxsize * L
+                mask_cell_width = self.mask_params['grid_cell_width'] / max_boxsize * L
+                assert np.all(mask_cell_centers >= -L/2.), 'Mask coords error'
+                assert np.all(mask_cell_centers+mask_cell_width <= L/2.), 'Mask coords error'
 
                 if comm_rank == 0:
-                    print('Mask coords x>=%.5f <=%.5f' % (self.mask_coords[:, 0].min(),
-                                                          self.mask_coords[:, 0].max()))
-                    print('Mask coords y>=%.5f <=%.5f' % (self.mask_coords[:, 1].min(),
-                                                          self.mask_coords[:, 1].max()))
-                    print('Mask coords z>=%.5f <=%.5f' % (self.mask_coords[:, 2].min(),
-                                                          self.mask_coords[:, 2].max()))
-
+                    print('Mask coords x>=%.5f <=%.5f grid cells'%\
+                            (mask_cell_centers[:, 0].min(), mask_cell_centers[:, 0].max()))
+                    print('Mask coords y>=%.5f <=%.5f grid cells'%\
+                            (mask_cell_centers[:, 2].min(), mask_cell_centers[:, 1].max()))
+                    print('Mask coords z>=%.5f <=%.5f grid cells'%\
+                            (mask_cell_centers[:, 2].min(), mask_cell_centers[:, 2].max()))
+                    print('Mask cells in grid cells = %.2f'%(mask_cell_width))
+                        
                 # Find out which cells in our grid will be glass.
                 get_assign_mask_cells(
                     cell_types,
-                    self.mask_coords,
+                    mask_cell_centers,
                     offsets,
-                    self.mask_grid_cell_width * (self.radius_in_cells / self.radius),
+                    mask_cell_width,
                     cell_nos,
-                    L
                 )
 
                 # Fill the rest with degrading resolution grid cells.
@@ -673,38 +677,30 @@ class ParticleLoad:
 
     def load_mask_file(self):
         """ Load mask file that outlines region. """
-        self.mask_grid_cell_width = None
+
         if self.mask_file is not None:
             if comm_rank == 0:
+                self.mask_params = {}
                 print('\n------ Loading mask file ------')
                 f = h5py.File(self.mask_file, 'r')
-                self.mask_coords = np.array(f['Coordinates'][...], dtype='f8')
-                self.coords = f['Coordinates'].attrs.get("com_coords")  # Center of high res.
-                bounding_box = [2. * np.maximum(f['Coordinates'].attrs.get("xlen_lo"),
-                                                f['Coordinates'].attrs.get("xlen_hi")),
-                                2. * np.maximum(f['Coordinates'].attrs.get("ylen_lo"),
-                                                f['Coordinates'].attrs.get("ylen_hi")),
-                                2. * np.maximum(f['Coordinates'].attrs.get("zlen_lo"),
-                                                f['Coordinates'].attrs.get("zlen_hi"))]
-                self.radius = np.max(bounding_box) / 2.
-                self.mask_high_res_volume = f['Coordinates'].attrs.get("high_res_volume")
-                self.mask_grid_cell_width = f['Coordinates'].attrs.get("grid_cell_width")
+                self.mask_params['coords'] = np.array(f['Coordinates'][...], dtype='f8')
+                self.coords = f['Coordinates'].attrs.get("geo_centre")  # Center of high res.
+                self.mask_params['bounding_length'] \
+                        = f['Coordinates'].attrs.get("bounding_length")
+                self.mask_params['high_res_volume'] \
+                        = f['Coordinates'].attrs.get("high_res_volume")
+                self.mask_params['grid_cell_width'] = \
+                        f['Coordinates'].attrs.get("grid_cell_width")
                 f.close()
                 print('Loaded: %s' % self.mask_file)
-                print('Mask bounding box = %s' % bounding_box)
+                print('Mask bounding length = %s Mpc/h' % self.mask_params['bounding_length'])
             else:
-                for att in ['mask_coords', 'coords', 'radius', 'mask_high_res_volume',
-                            'mask_grid_cell_width']:
-                    setattr(self, att, None)
-                bounding_box = None
-            for att in ['mask_coords', 'coords', 'radius', 'mask_high_res_volume',
-                        'mask_grid_cell_width']:
-                setattr(self, att, comm.bcast(getattr(self, att)))
-            bounding_box = comm.bcast(bounding_box)
+                self.mask_params = None
+                self.coords = None
+            self.mask_params = comm.bcast(self.mask_params)
+            self.coords = comm.bcast(self.coords)
         else:
             raise Exception("Test this")
-            bounding_box = [2. * self.radius, 2. * self.radius, 2. * self.radius]
-        return np.array(bounding_box)
 
     def compute_fft_stats(self, max_boxsize, all_ntot):
         """ Work out what size of FFT grid we need for the IC gen. """
@@ -808,8 +804,7 @@ class ParticleLoad:
             self.compute_softning(verbose=True)
 
         # Load mask file.
-        if self.is_zoom:
-            bounding_box = self.load_mask_file()
+        if self.is_zoom: self.load_mask_file()
 
         # |----------------------------------------|
         # | First compute the high resolution grid |
@@ -820,24 +815,22 @@ class ParticleLoad:
         assert n_cells ** 3 * self.glass_num == self.n_particles,\
                 'Error creating high res cell sizes'
         cell_length = np.true_divide(self.box_size, n_cells)  # Mpc/h
+        self.cell_length = cell_length
         if comm_rank == 0:
             print('\n------ High res grid ------')
             print('A glass cell length is %.4f Mpc/h' % (cell_length))
         if self.is_zoom:
             # X,Y,Z num of cells in high res grid.
 
-            # Number of buffer cells around glass particles (one on each side).
-            buf = self.glass_buffer_cells
-
             # Dimensions of high resolution grid in glass cells.
-            n_cells_high = np.array([
-                np.minimum(buf + int(np.ceil(bounding_box[0] / cell_length)), n_cells),
-                np.minimum(buf + int(np.ceil(bounding_box[1] / cell_length)), n_cells),
-                np.minimum(buf + int(np.ceil(bounding_box[2] / cell_length)), n_cells)],
-                dtype='i4')
+            n_cells_high = \
+                    np.tile(int(np.ceil(self.mask_params['bounding_length'] / cell_length)), 3)
+            n_cells_high += self.glass_buffer_cells * 2
+            assert np.all(n_cells_high < n_cells), 'To many cells'
 
             # Make sure slabs do the whole box in 2 dimensions.
             if self.is_slab:
+                raise Exception("Test me")
                 assert n_cells_high[0] == n_cells_high[1], "Only works for slabs in z"
                 n_cells_high[0] = n_cells
                 n_cells_high[1] = n_cells
@@ -846,7 +839,9 @@ class ParticleLoad:
             n_cells_high = np.array([n_cells, n_cells, n_cells])
 
         if self.is_zoom:
-            self.radius_in_cells = np.true_divide(self.radius, cell_length)
+            # Number of cells that cover bounding region.
+            self.radius_in_cells =\
+                    np.true_divide(self.mask_params['bounding_length'], cell_length)
 
             # Make sure grid can accomodate the radius factor.
             # if self.is_slab == False:
@@ -856,21 +851,17 @@ class ParticleLoad:
 
             # What's the width of the slab in cells.
             if self.is_slab:
-                self.slab_width_cells = \
-                    np.minimum(int(np.ceil(bounding_box[2] / cell_length)), n_cells)
-                if comm_rank == 0:
-                    print('Number of cells for the width of slab = %i' % self.slab_width_cells)
+                raise Exception("Test me")
+                #self.slab_width_cells = \
+                #    np.minimum(int(np.ceil(bounding_box[2] / cell_length)), n_cells)
+                #if comm_rank == 0:
+                #    print('Number of cells for the width of slab = %i' % self.slab_width_cells)
 
         # Compute grid dimensions.
-        tmp_mask = np.where(n_cells_high > n_cells)
-        n_cells_high[tmp_mask] = n_cells
         max_cells = np.max(n_cells_high)
-        min_cells = np.min(n_cells_high)
+        assert max_cells <= n_cells, 'Grid to large'
 
-        if self.is_slab == False:
-            # Default of high resolution grid is a cube.
-            n_cells_high = [max_cells, max_cells, max_cells]
-        else:
+        if self.is_slab:
             # For a slab keep the assymetry.
             tmp_mask = np.where(n_cells_high == n_cells)[0]
             assert len(tmp_mask) == 2, 'For a slab simulation, 2 dimentions have to fill box ' + \
@@ -900,13 +891,14 @@ class ParticleLoad:
         offsets, cell_nos = \
             get_grid(n_cells_high[0], n_cells_high[1], n_cells_high[2], comm_rank,
                      comm_size, this_num_cells)
+
         assert len(cell_nos) == this_num_cells, \
             'Error creating cells %i != %i' % (len(cell_nos), this_num_cells)
-        assert comm.allreduce(len(cell_nos)) == n_cells_high[0] * n_cells_high[1] * n_cells_high[2], \
+        assert comm.allreduce(len(cell_nos)) == n_cells_high[0]*n_cells_high[1]*n_cells_high[2],\
             'Error creating cells 2.'
 
         # Initiate the high resolution grid.
-        cell_types_hi = self.init_high_res(offsets, cell_nos, n_cells_high[0])  # NOT RIGHT FOR SLAB
+        cell_types_hi = self.init_high_res(offsets, cell_nos, n_cells_high[0], max_boxsize)
 
         # Total memory of high res grid.
         self.size_of_HR_grid_arrays = sys.getsizeof(cell_types_hi) + sys.getsizeof(offsets) + \
@@ -923,7 +915,7 @@ class ParticleLoad:
             if self.is_zoom:
                 if self.mask_file is not None:
                     n_particles_target = (self.n_particles / self.box_size ** 3.) \
-                                         * self.mask_high_res_volume
+                                         * self.mask_params['high_res_volume']
                 print('--- Total number of glass particles %i (%.2f cubed, %.2f percent)' % \
                       (self.n_tot_glass_part, self.n_tot_glass_part ** (1 / 3.), np.true_divide(
                           self.n_tot_glass_part, all_ntot)))
@@ -943,7 +935,7 @@ class ParticleLoad:
             print('--- Total memory per rank HR grid=%.6f Gb, total of particles=%.6f Gb' % \
                   (self.size_of_HR_grid_arrays / 1024. / 1024. / 1024.,
                    (4 * all_ntot * 8. / 1024. / 1024. / 1024.)))
-            print('--- Num ranks needed for < 2**31 per rank = %.2f' % \
+            print('--- Num ranks needed for less than <max_particles_per_ic_file> = %.2f' % \
                   (np.true_divide(all_ntot, self.max_particles_per_ic_file)))
         if self.only_calc_ntot:
             sys.exit()
@@ -991,7 +983,6 @@ class ParticleLoad:
         # Generate outer particles of low res grid with growing skins.
         if self.is_zoom:
             if comm_rank == 0: print('\n------Outer low res skins ------')
-            assert min_cells < n_cells, 'Cant zoom if the high res region is the whole box!'
             if self.is_slab:
                 if comm_rank == 0:
                     print('Putting low res particles around slab of width %.2f Mpc/h' % \
@@ -1218,10 +1209,11 @@ class ParticleLoad:
             eps_baryon_physical = eps_dm_physical / fac
 
         if comm_rank == 0 and verbose:
-            print('Comoving Softenings: DM=%.6f Baryons=%.6f Mpc/h' % (
-                eps_dm, eps_baryon))
-            print('Max phys Softenings: DM=%.6f Baryons=%.6f Mpc/h' % (
-                eps_dm_physical, eps_baryon_physical))
+            if not self.dm_only:
+                print('Comoving Softenings: DM=%.6f Baryons=%.6f Mpc/h' % (
+                    eps_dm, eps_baryon))
+                print('Max phys Softenings: DM=%.6f Baryons=%.6f Mpc/h' % (
+                    eps_dm_physical, eps_baryon_physical))
             print('Comoving Softenings: DM=%.6f Baryons=%.6f Mpc' % (
                 eps_dm / self.HubbleParam, eps_baryon / self.HubbleParam))
             print('Max phys Softenings: DM=%.6f Baryons=%.6f Mpc' % (
@@ -1259,6 +1251,8 @@ class ParticleLoad:
 
     def save(self, coords_x, coords_y, coords_z, masses):
         ntot = comm.allreduce(len(masses))
+        ntot_min = comm.allreduce(len(masses), op=MPI.MIN)
+        ntot_max = comm.allreduce(len(masses), op=MPI.MAX)
 
         # Randomise arrays.
         if self.randomize:
@@ -1278,16 +1272,18 @@ class ParticleLoad:
             ndesired[:] = ntot / comm_size
             ndesired[-1] += (ntot - sum(ndesired))
             if comm_rank == 0:
-                tmp_num_per_file = ndesired[0] ** (1 / 3.)
+                tmp_num_per_file = ndesired[0]**(1 / 3.)
                 print('Load balancing %i particles on %i ranks (%.2f**3 per file)...' \
                       % (ntot, comm_size, tmp_num_per_file))
-                if tmp_num_per_file > self.max_particles_per_ic_file:
-                    print("***WARNING*** more than 2**31 per file***")
+                print('Min num on rank = %i, Max num on rank = %i'%(ntot_min,ntot_max))
+                if tmp_num_per_file > self.max_particles_per_ic_file**(1/3.):
+                    print("***WARNING*** more than %s per file***"%(self.max_particles_per_ic_file))
 
             masses = repartition(masses, ndesired, comm, comm_rank, comm_size)
             coords_x = repartition(coords_x, ndesired, comm, comm_rank, comm_size)
             coords_y = repartition(coords_y, ndesired, comm, comm_rank, comm_size)
             coords_z = repartition(coords_z, ndesired, comm, comm_rank, comm_size)
+            comm.barrier()
             if comm_rank == 0:
                 print('Done load balancing.')
 
@@ -1324,25 +1320,32 @@ class ParticleLoad:
                     g.attrs.create('itot', ntot)
                     g.attrs.create('nj', comm_rank)
                     g.attrs.create('nfile', comm_size)
+                    g.attrs.create('coords', self.coords/self.box_size)
+                    g.attrs.create('radius', self.radius/self.box_size)
+                    g.attrs.create('cell_length', self.cell_length/self.box_size)
                     f.close()
 
                 # Save to fortran binary.
-                f = open('%s/PL.%d' % (save_dir_bin, comm_rank), 'w')
-                dt = [('nlist', np.int32), ('itot', np.int64), ('nj', np.int32),
-                      ('nfile', np.int32), ('ibuf', np.int32, 7)]
-                head = np.empty(1, dtype=dt)
-                head['nlist'] = len(masses)
-                head['itot'] = ntot
-                head['nj'] = comm_rank
-                head['nfile'] = comm_size
-                head['ibuf'] = [0, 0, 0, 0, 0, 0, 0]
+                fname = '%s/PL.%d' % (save_dir_bin, comm_rank)
+                self.save_particle_load_as_binary(fname, coords_x, coords_y, coords_z, masses,
+                    ntot, comm_rank, comm_size) 
 
-                self.write_fortran(head, f)
-                self.write_fortran(np.array(coords_x, dtype=np.float64), f)
-                self.write_fortran(np.array(coords_y, dtype=np.float64), f)
-                self.write_fortran(np.array(coords_z, dtype=np.float64), f)
-                self.write_fortran(np.array(masses, dtype=np.float32), f)
-                f.close()
+                #f = open('%s/PL.%d' % (save_dir_bin, comm_rank), 'w')
+                #dt = [('nlist', np.int32), ('itot', np.int64), ('nj', np.int32),
+                #      ('nfile', np.int32), ('ibuf', np.int32, 7)]
+                #head = np.empty(1, dtype=dt)
+                #head['nlist'] = len(masses)
+                #head['itot'] = ntot
+                #head['nj'] = comm_rank
+                #head['nfile'] = comm_size
+                #head['ibuf'] = [0, 0, 0, 0, 0, 0, 0]
+
+                #self.write_fortran(head, f)
+                #self.write_fortran(np.array(coords_x, dtype=np.float64), f)
+                #self.write_fortran(np.array(coords_y, dtype=np.float64), f)
+                #self.write_fortran(np.array(coords_z, dtype=np.float64), f)
+                #self.write_fortran(np.array(masses, dtype=np.float32), f)
+                #f.close()
 
                 print('[%i] Saved %i/%i particles...' % (comm_rank, len(masses), ntot))
             comm.barrier()
@@ -1353,6 +1356,30 @@ class ParticleLoad:
         s.tofile(f)
         np.array([s.nbytes], dtype=np.int32).tofile(f)
 
+    def save_particle_load_as_binary(self, fname, coords_x, coords_y, coords_z, masses,
+            n_tot, nfile, nfile_tot):
+        f = FortranFile(fname, mode="w")
+        # 4+8+4+4+4 = 24
+        f.write_record(
+            np.int32(coords_x.shape[0]),
+            np.int64(n_tot),
+            np.int32(nfile),
+            np.int32(nfile_tot),
+            np.int32(0),
+            # Now we pad the header with 6 zeros to make the header length
+            # 48 bytes in total
+            np.int32(0),
+            np.int32(0),
+            np.int32(0),
+            np.int32(0),
+            np.int32(0),
+            np.int32(0),
+        )
+        f.write_record(coords_x.astype(np.float64))
+        f.write_record(coords_y.astype(np.float64))
+        f.write_record(coords_z.astype(np.float64))
+        f.write_record(masses.astype("float32"))
+        f.close()
 
 if __name__ == '__main__':
     only_calc_ntot = False
