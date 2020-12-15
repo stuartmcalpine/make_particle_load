@@ -1311,10 +1311,13 @@ class ParticleLoad:
                     if comm_rank == 0:
                         print('Saving HDF5 files...')
                     f = h5py.File(save_dir_hdf + 'PL.%d.hdf5' % comm_rank, 'w')
-                    f.create_dataset('Coordinates_x', data=np.array(coords_x, dtype='f8'))
-                    f.create_dataset('Coordinates_y', data=np.array(coords_y, dtype='f8'))
-                    f.create_dataset('Coordinates_z', data=np.array(coords_z, dtype='f8'))
-                    f.create_dataset('Masses', data=np.array(masses, dtype='f4'))
+                    g = f.create_group('PartType1')
+                    g.create_dataset('Coordinates', (len(masses), 3), dtype='f8')
+                    g['Coordinates'][:,0] = coords_x
+                    g['Coordinates'][:,1] = coords_y
+                    g['Coordinates'][:,2] = coords_z
+                    g.create_dataset('Masses', data=masses)
+                    g.create_dataset('ParticleIDs', data=np.arange(0,len(masses)))
                     g = f.create_group('Header')
                     g.attrs.create('nlist', len(masses))
                     g.attrs.create('itot', ntot)
@@ -1323,6 +1326,13 @@ class ParticleLoad:
                     g.attrs.create('coords', self.coords/self.box_size)
                     g.attrs.create('radius', self.radius/self.box_size)
                     g.attrs.create('cell_length', self.cell_length/self.box_size)
+                    g.attrs.create('Redshift', 1000)
+                    g.attrs.create('Time', 0)
+                    g.attrs.create('NumPart_ThisFile', [0,len(masses),0,0,0])
+                    g.attrs.create('NumPart_Total', [0,ntot,0,0,0])
+                    g.attrs.create('NumPart_TotalHighWord', [0,0,0,0,0])
+                    g.attrs.create('NumFilesPerSnapshot', comm_size)
+                    g.attrs.create('ThisFile', comm_rank)
                     f.close()
 
                 # Save to fortran binary.
