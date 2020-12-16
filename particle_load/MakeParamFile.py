@@ -76,6 +76,9 @@ def make_param_file_ics(params):
     # Use peano hilbert indexing?
     params['use_ph'] = 2 if params['use_ph_ids'] else 1
 
+    # Cube of neff
+    params['high_res_n_eff_cube'] = round(params['high_res_n_eff']**(1./3))
+
     # Replace template values.
     with open('./templates/ic_gen/params.inp', 'r') as f:
         src = Template(f.read())

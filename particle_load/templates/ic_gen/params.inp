@@ -89,5 +89,5 @@ $coords_x     xcentre  (Mpc/h)
 $coords_y     ycentre  (Mpc/h)
 $coords_z     zcentre  (Mpc/h)
 $high_res_L          side length (Mpc/h)
-$high_res_n_eff      Effective resolution     ! Number of particles in high res region (=XXX^3)
+$high_res_n_eff      Effective resolution     ! Number of particles in high res region (=$high_res_n_eff_cube^3)
 ------------------------------------------------------------------------------
