@@ -728,12 +728,12 @@ class ParticleLoad:
                         nlevels += 1
                     actual_high_res_L = self.box_size/(2.**nlevels)
                     assert actual_high_res_L > self.high_res_L, 'Incorrect actual high_res_L'
-                    self.high_res_n_eff = \
+                    actual_high_res_n_eff = \
                             int(self.n_particles * (actual_high_res_L**3./self.box_size**3))
                         
                     print('--- HRgrid num multigrids=%i, lowest=%.2f Mpc/h n_eff: %.2f**3 (x2 %.2f**3)'\
-                            %(nlevels,actual_high_res_L,self.high_res_n_eff**(1/3.),
-                                2*self.high_res_n_eff**(1/3.)))
+                            %(nlevels,actual_high_res_L,actual_high_res_n_eff**(1/3.),
+                                2*actual_high_res_n_eff**(1/3.)))
         else:
             self.high_res_n_eff = self.n_particles
             self.high_res_L = self.box_size
