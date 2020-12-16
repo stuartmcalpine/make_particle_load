@@ -7,22 +7,21 @@ from string import Template
 # | Make submit and param file for IC gen. |
 # |----------------------------------------|
 
-def make_submit_file_ics(dir, fname, num_hours, ncores):
+def make_submit_file_ics(params):
     """ Make slurm submission script for icgen. """
 
     # Make folder if it doesn't exist.
-    ic_gen_dir = '%s/ic_gen_submit_files/%s/'%(dir,fname)
+    ic_gen_dir = '%s/ic_gen_submit_files/%s/'%(params['ic_dir'],params['f_name'])
     if not os.path.exists(ic_gen_dir): os.makedirs(ic_gen_dir)
 
-    # First load template.
+    # Replace template values.
     with open('./templates/ic_gen/submit', 'r') as f:
-        data = f.read()
-    
-    # Write new param file.
-    r = ['%i'%ncores, fname, '%i'%num_hours, fname]
+        src = Template(f.read())
+        result = src.substitute(params)
 
+    # Write new param file.
     with open('%s/submit.sh'%(ic_gen_dir), 'w') as f:
-        f.write(re.sub('XXX', lambda m, i=iter(r): next(i), data))
+        f.write(result)
 
     # Change execution privileges (make file executable by group)
     # Assumes the files already exist. If not, it has no effect.

@@ -1165,13 +1165,16 @@ class ParticleLoad:
             swift_dir=self.swift_dir,
             n_nodes_swift=self.n_nodes_swift,
             num_hours_swift=self.num_hours_swift,
-            swift_exec_location=self.swift_exec_location)
+            swift_exec_location=self.swift_exec_location,
+            num_hours_ic_gen=self.num_hours_ic_gen,
+            n_cores_ic_gen=self.n_cores_ic_gen)
 
         # Make ICs param file.
         if self.make_ic_param_files:
             make_param_file_ics(param_dict)
+            make_submit_file_ics(param_dict)
             print('\n------ Saving ------')
-            print('Saved ics param file.')
+            print('Saved ics param and submit file.')
 
         if self.do_gadget4:
             raise Exception("Think about DMO for gadget4")
@@ -1201,12 +1204,6 @@ class ParticleLoad:
     def save_submit_files(self, max_boxsize):
 
         """ Generate submit files. """
-        # Make ICs submit file.
-        if self.make_ic_param_files:
-            make_submit_file_ics(self.ic_dir, self.f_name,
-                                 self.num_hours_ic_gen, self.n_cores_ic_gen)
-            print('Saved ics submit file.')
-
         if self.do_gadget:
             make_submit_file_gadget(self.gadget_dir, self.n_cores_gadget, self.f_name,
                                     self.n_species, self.gadget_exec)
