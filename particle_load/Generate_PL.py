@@ -1104,33 +1104,75 @@ class ParticleLoad:
         lr_cut = 0.0
 
         if self.is_zoom:
+            i_z = 1
+
             if self.n_species >= 2:
                 hr_cut = np.log10(self.glass_particle_mass) + 0.01
                 print('log10 mass cut from parttype 1 --> 2 = %.2f' % (hr_cut))
             if self.n_species == 3:
                 lr_cut = np.log10(self.max_grid_mass) + 0.01
                 print('log10 mass cut from parttype 2 --> 3 = %.2f' % (lr_cut))
+        else:
+            i_z = 0
+
+        # Get softenings.
+        eps_dm, eps_baryon, eps_dm_physical, eps_baryon_physical = self.compute_softning()
+
+        # Build parameter list.
+        param_dict = dict(
+            hr_cut='%.3f'%hr_cut,
+            lr_cut='%.3f'%lr_cut,
+            is_zoom=i_z,
+            f_name=self.f_name,
+            n_species=self.n_species,
+            ic_dir=self.ic_dir,
+            box_size='%.8f'%self.box_size,
+            starting_z='%.8f'%self.starting_z,
+            finishing_z='%.8f'%self.finishing_z,
+            n_particles=self.n_particles,
+            coords_x='%.8f'%self.coords[0],
+            coords_y='%.8f'%self.coords[1],
+            coords_z='%.8f'%self.coords[2],
+            high_res_L='%.8f'%self.high_res_L,
+            high_res_n_eff=self.high_res_n_eff,
+            panphasian_descriptor=self.panphasian_descriptor,
+            constraint_phase_descriptor=self.constraint_phase_descriptor,
+            constraint_phase_descriptor_path=self.constraint_phase_descriptor_path,
+            constraint_phase_descriptor_levels=self.constraint_phase_descriptor_levels,
+            constraint_phase_descriptor2=self.constraint_phase_descriptor2,
+            constraint_phase_descriptor_path2=self.constraint_phase_descriptor_path2,
+            constraint_phase_descriptor_levels2=self.constraint_phase_descriptor_levels2,
+            ndim_fft_start=self.ndim_fft_start,
+            Omega0='%.8f'%self.Omega0,
+            OmegaLambda='%.8f'%self.OmegaLambda,
+            OmegaBaryon='%.8f'%self.OmegaBaryon,
+            HubbleParam='%.8f'%self.HubbleParam,
+            Sigma8='%.8f'%self.Sigma8,
+            is_slab=self.is_slab,
+            use_ph_ids=self.use_ph_ids,
+            multigrid_ics=self.multigrid_ics,
+            linear_ps=self.linear_ps,
+            nbit=self.nbit,
+            fft_times_fac=self.fft_times_fac,
+            swift_ic_dir_loc=self.swift_ic_dir_loc,
+            eps_dm='%.8f'%eps_dm,
+            eps_baryon='%.8f'%eps_baryon,
+            softening_ratio_background=self.softening_ratio_background,
+            eps_dm_physical='%.8f'%eps_dm_physical,
+            eps_baryon_physical='%.8f'%eps_baryon_physical,
+            template_set=self.template_set,
+            gas_particle_mass=self.gas_particle_mass,
+            swift_dir=self.swift_dir,
+            n_nodes_swift=self.n_nodes_swift,
+            num_hours_swift=self.num_hours_swift,
+            swift_exec_location=self.swift_exec_location)
 
         # Make ICs param file.
-        i_z = 1 if self.is_zoom else 0
         if self.make_ic_param_files:
-            make_param_file_ics(self.ic_dir, self.f_name, self.n_species, hr_cut,
-                                lr_cut, self.box_size, self.starting_z, self.n_particles,
-                                self.coords[0], self.coords[1], self.coords[2], self.high_res_L,
-                                self.high_res_n_eff, i_z, self.panphasian_descriptor,
-                                self.constraint_phase_descriptor,
-                                self.constraint_phase_descriptor_path,
-                                self.constraint_phase_descriptor_levels,
-                                self.constraint_phase_descriptor2,
-                                self.constraint_phase_descriptor_path2,
-                                self.constraint_phase_descriptor_levels2, self.ndim_fft_start,
-                                self.Omega0, self.OmegaLambda, self.OmegaBaryon,
-                                self.HubbleParam, self.Sigma8, self.is_slab, self.use_ph_ids,
-                                self.multigrid_ics, self.linear_ps, self.nbit, self.fft_times_fac)
+            make_param_file_ics(param_dict)
             print('\n------ Saving ------')
             print('Saved ics param file.')
 
-        eps_dm, eps_baryon, eps_dm_physical, eps_baryon_physical = self.compute_softning()
         if self.do_gadget4:
             raise Exception("Think about DMO for gadget4")
             # Make GADGET4 param file.
@@ -1152,14 +1194,9 @@ class ParticleLoad:
 
         if self.make_swift_param_files:
             # Make swift param file (remember no h's for swift).
-            make_param_file_swift(self.swift_dir, self.Omega0,
-                                  self.OmegaLambda, self.OmegaBaryon, self.HubbleParam,
-                                  self.starting_z, self.finishing_z, self.f_name,
-                                  self.is_zoom, self.template_set,
-                                  self.softening_ratio_background, eps_dm, eps_baryon,
-                                  eps_dm_physical, eps_baryon_physical,
-                                  self.swift_ic_dir_loc, self.gas_particle_mass)
-            print('Saved swift param file.')
+            make_param_file_swift(param_dict)
+            make_submit_file_swift(param_dict)
+            print('Saved swift param and submit file.')
 
     def save_submit_files(self, max_boxsize):
 
@@ -1174,13 +1211,6 @@ class ParticleLoad:
             make_submit_file_gadget(self.gadget_dir, self.n_cores_gadget, self.f_name,
                                     self.n_species, self.gadget_exec)
             print('Saved gadget submit file.')
-
-        if self.make_swift_param_files:
-            # Make swift submit files.
-            make_submit_file_swift(self.swift_dir, self.f_name,
-                                   self.n_nodes_swift, self.num_hours_swift,
-                                   self.template_set, self.swift_exec_location)
-            print('Saved swift submit file.')
 
     def compute_softning(self, verbose=False):
         """ Compute softning legnths. """

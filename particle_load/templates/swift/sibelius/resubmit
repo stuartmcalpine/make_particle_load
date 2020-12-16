@@ -1,20 +1,24 @@
 #!/bin/bash -l
 
-#SBATCH --ntasks=XXX
-#SBATCH -J XXX
+#SBATCH --ntasks=$n_nodes_swift
+#SBATCH -J $f_name
 #SBATCH --output=out_files/log_%j.txt
 #SBATCH -p cosma7
 #SBATCH -A dp004
 #SBATCH --exclusive
 #SBATCH --cpus-per-task=28
-#SBATCH --time=XXX:00:00
+#SBATCH --time=$num_hours_swift:00:00
 
-load_swift_c7_old
+module purge
+module load intel_comp/2018
+module load intel_mpi/2018
+module load parallel_hdf5/1.10.3
+module load fftw/3.3.8cosma7
+module load gsl/2.5
+module load parmetis/4.0.3-64bit
 
-export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
-
-mpirun -np $SLURM_NTASKS ../../swiftsim/examples/swift_mpi -v 1 --pin --cosmology --self-gravity --threads=$SLURM_CPUS_PER_TASK --restart --velociraptor params.yml
+mpirun -np $$SLURM_NTASKS ../../swiftsim/examples/swift_mpi -v 1 --pin --cosmology --self-gravity --threads=$$SLURM_CPUS_PER_TASK --restart params.yml
 
 echo "Job done, info follows..."
-sacct -j $SLURM_JOBID --format=JobID,JobName,Partition,AveRSS,MaxRSS,AveVMSize,MaxVMSize,Elapsed,ExitCode
+sacct -j $$SLURM_JOBID --format=JobID,JobName,Partition,AveRSS,MaxRSS,AveVMSize,MaxVMSize,Elapsed,ExitCode
 exit
