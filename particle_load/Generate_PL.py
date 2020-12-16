@@ -596,12 +596,12 @@ class ParticleLoad:
         if comm_rank == 0:
             if self.is_zoom:
                 print(
-                    'Glass mass %.8g (%.2g Msol/h), min grid mass %.8g (%.2g Msol/h), max grid mass %.8g (%.2g Msol/h)' \
+                    'Glass mass %.8g (%.2g Msol), min grid mass %.8g (%.2g Msol), max grid mass %.8g (%.2g Msol)' \
                     % (self.glass_particle_mass, self.glass_particle_mass * self.total_box_mass,
                        self.min_grid_mass, self.min_grid_mass * self.total_box_mass,
                        self.max_grid_mass, self.max_grid_mass * self.total_box_mass))
             else:
-                print('Glass mass %.8g (%.2g Msol/h)' % (self.glass_particle_mass,
+                print('Glass mass %.8g (%.2g Msol)' % (self.glass_particle_mass,
                                                          self.glass_particle_mass * self.total_box_mass))
 
         # Loop over each cell type and fill up the grid.
@@ -638,7 +638,7 @@ class ParticleLoad:
 
             # Print info for this cell type.
             if self.verbose:
-                print('[%i: Type %i] n=%i (%.2f^3) in %i cells (%i/cell) m=%.4f (%.2g Msol/h)' % \
+                print('[%i: Type %i] n=%i (%.2f^3) in %i cells (%i/cell) m=%.4f (%.2g Msol)' % \
                       (comm_rank, self.cell_info['type'][i],
                        len(mask[0]) * self.cell_info['num_particles_per_cell'][i],
                        (len(mask[0]) * self.cell_info['num_particles_per_cell'][i]) ** (1 / 3.), len(mask[0]),
@@ -1020,7 +1020,7 @@ class ParticleLoad:
 
             if comm_rank == 0:
                 print(
-                    'Total %i particles in low res region (%.2f cubed) MinM = %.2f (%.2g Msol/h) MaxM = %.2f (%.2g Msol/h)' % \
+                    'Total %i particles in low res region (%.2f cubed) MinM = %.2f (%.2g Msol) MaxM = %.2f (%.2g Msol)' % \
                     (num_lr, num_lr ** (1 / 3.), np.log10(min_lr), min_lr * self.total_box_mass,
                      np.log10(max_lr), max_lr * self.total_box_mass))
             self.lr_mass_cut = min_lr
