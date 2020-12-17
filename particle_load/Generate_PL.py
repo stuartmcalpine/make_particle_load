@@ -1163,11 +1163,11 @@ class ParticleLoad:
             template_set=self.template_set,
             gas_particle_mass=self.gas_particle_mass,
             swift_dir=self.swift_dir,
-            n_nodes_swift=self.n_nodes_swift,
+            n_nodes_swift='%i'%self.n_nodes_swift,
             num_hours_swift=self.num_hours_swift,
             swift_exec_location=self.swift_exec_location,
             num_hours_ic_gen=self.num_hours_ic_gen,
-            n_cores_ic_gen=self.n_cores_ic_gen)
+            n_cores_ic_gen='%i'%self.n_cores_ic_gen)
 
         # Make ICs param file.
         if self.make_ic_param_files:
