@@ -73,6 +73,7 @@ InitialConditions:
 
 # FOF for HBT.
 FOF:
-  min_group_size:                  20
-  linking_length_ratio:            0.2
-  seed_black_holes_enabled:        0
+  min_group_size:               20
+  linking_length_ratio:         0.2
+  seed_black_holes_enabled:     0
+  basename:                     $f_name
