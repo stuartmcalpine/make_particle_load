@@ -114,7 +114,12 @@ def make_param_file_swift(params):
         #subprocess.call("cp ./templates/swift/%s/select_output.yml %s"%\
         #        (template_set, data_dir), shell=True)
     elif params['template_set'].lower() == 'sibelius':
+        # Copy over select output.
         subprocess.call("cp ./templates/swift/%s/select_output.yml %s"%\
+                (params['template_set'], data_dir), shell=True)
+
+        # Copy over snapshots times.
+        subprocess.call("cp ./templates/swift/%s/stf_times_a.txt %s/snapshot_times.txt"%\
                 (params['template_set'], data_dir), shell=True)
     elif params['template_set'].lower() == 'eaglexl':
         raise Exception("Fix this one")

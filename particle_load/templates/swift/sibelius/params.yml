@@ -31,12 +31,13 @@ Snapshots:
   delta_time:           1.02
   scale_factor_first:   0.02
   output_list_on:       1
-  output_list:          ../../snapshot_times.txt
+  output_list:          snapshot_times.txt
   subdir:               snapshots 
   distributed:          1
   compression:          0
   select_output_on:     1
   select_output:        select_output.yml
+  invoke_fof:           1
 
 # Parameters governing the conserved quantities statistics
 Statistics:
@@ -68,5 +69,10 @@ InitialConditions:
   file_name:                   $swift_ic_dir_loc/$f_name.hdf5
   periodic:                    1
   cleanup_h_factors:           1    
-  cleanup_velocity_factors:    1  
-  remap_ids:                   1
+  cleanup_velocity_factors:    1
+
+# FOF for HBT.
+FOF:
+  min_group_size:                  20
+  linking_length_ratio:            0.2
+  seed_black_holes_enabled:        0
