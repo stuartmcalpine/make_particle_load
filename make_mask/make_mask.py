@@ -224,7 +224,7 @@ class MakeMask:
             self.params['length_unit'] = 'Mph/h'
             self.params['redshift'] = snap.HEADER['Redshift']
         elif self.params['data_type'].lower() == 'swift':
-            snap = read_swift(self.params['snap_file'])
+            snap = read_swift(self.params['snap_file'], comm=comm)
             self.params['bs'] = float(snap.HEADER['BoxSize'])
             self.params['h_factor'] = float(snap.COSMOLOGY['h'])
             self.params['length_unit'] = 'Mpc'
@@ -254,7 +254,7 @@ class MakeMask:
             snap.split_selection(comm_rank, comm_size)
         elif self.params['data_type'].lower() == 'swift':
             snap.select_region(1, *self.region)
-            snap.split_selection(comm)
+            snap.split_selection()
 
         # Load DM particle IDs.
         if comm_rank == 0:
