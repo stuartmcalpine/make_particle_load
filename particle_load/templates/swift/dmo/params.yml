@@ -8,13 +8,13 @@ InternalUnitSystem:
 
 # Planck-13 cosmology
 Cosmology:
-  h:              $HubbleParam
-  a_begin:        $starting_a
-  a_end:          $finishing_a
-  Omega_m:        $Omega0
-  Omega_lambda:   $OmegaLambda
-  Omega_b:        $OmegaBaryon
-    
+  h:              $HubbleParam      # Reduced Hubble constant
+  a_begin:        $starting_a       # Initial scale-factor of the simulation
+  a_end:          $finishing_a      # Final scale factor of the simulation
+  Omega_cdm:      $OmegaCDM         # Cold Dark Matter density parameter
+  Omega_lambda:   $OmegaLambda      # Dark-energy density parameter
+  Omega_b:        $OmegaBaryon      # Baryon density parameter
+  
 # Parameters governing the time integration
 TimeIntegration:
   dt_min:     1e-6 

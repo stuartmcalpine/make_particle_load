@@ -163,8 +163,9 @@ class ParticleLoad:
         # Assign cosmology.
         if self.which_cosmology == 'Planck2013':
             self.Omega0 = 0.307
+            self.OmegaCDM = 0.2587481
             self.OmegaLambda = 0.693
-            self.OmegaBaryon = 0.04825
+            self.OmegaBaryon = 0.0482519
             self.HubbleParam = 0.6777
             self.Sigma8 = 0.8288
             self.linear_ps = 'extended_planck_linear_powspec'
@@ -1145,6 +1146,7 @@ class ParticleLoad:
             constraint_phase_descriptor_levels2=self.constraint_phase_descriptor_levels2,
             ndim_fft_start=self.ndim_fft_start,
             Omega0='%.8f'%self.Omega0,
+            OmegaCDM='%.8f'%self.OmegaCDM,
             OmegaLambda='%.8f'%self.OmegaLambda,
             OmegaBaryon='%.8f'%self.OmegaBaryon,
             HubbleParam='%.8f'%self.HubbleParam,

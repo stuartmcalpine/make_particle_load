@@ -10,14 +10,13 @@ InternalUnitSystem:
   UnitCurrent_in_cgs:  1             # Amperes
   UnitTemp_in_cgs:     1             # Kelvin
 
-# Cosmological parameters
 Cosmology:
-  h:              XXX        # Reduced Hubble constant
-  a_begin:        XXX     # Initial scale-factor of the simulation
-  a_end:          XXX           # Final scale factor of the simulation
-  Omega_m:        XXX         # Matter density parameter
-  Omega_lambda:   XXX        # Dark-energy density parameter
-  Omega_b:        XXX     # Baryon density parameter
+  h:              $HubbleParam      # Reduced Hubble constant
+  a_begin:        $starting_a       # Initial scale-factor of the simulation
+  a_end:          $finishing_a      # Final scale factor of the simulation
+  Omega_cdm:      $OmegaCDM         # Cold Dark Matter density parameter
+  Omega_lambda:   $OmegaLambda      # Dark-energy density parameter
+  Omega_b:        $OmegaBaryon      # Baryon density parameter
 
 # Parameters governing the time integration
 TimeIntegration:
