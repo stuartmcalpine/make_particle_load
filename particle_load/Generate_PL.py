@@ -721,7 +721,8 @@ class ParticleLoad:
             # How many multi grid FFT levels, this will update n_eff?
             if self.multigrid_ics:
                 if self.high_res_L > self.box_size/2.:
-                    raise Exception("Should not use multi grid when zoom region is > boxsize/2.")
+                    print("--- Cannot use multigrid ICs, zoom region is > boxsize/2.")
+                    self.multigrid_ics = 0
                 else:
                     nlevels = 0
                     while self.box_size / (2.**(nlevels+1)) > self.high_res_L:
@@ -1116,7 +1117,7 @@ class ParticleLoad:
             i_z = 0
 
         # Get softenings.
-        eps_dm, eps_baryon, eps_dm_physical, eps_baryon_physical = self.compute_softning()
+        eps_dm_h, eps_baryon_h, eps_dm_physical_h, eps_baryon_physical_h = self.compute_softning()
 
         # Build parameter list.
         param_dict = dict(
@@ -1155,11 +1156,11 @@ class ParticleLoad:
             nbit=self.nbit,
             fft_times_fac=self.fft_times_fac,
             swift_ic_dir_loc=self.swift_ic_dir_loc,
-            eps_dm='%.8f'%eps_dm,
-            eps_baryon='%.8f'%eps_baryon,
+            eps_dm_h='%.8f'%eps_dm_h,
+            eps_baryon_h='%.8f'%eps_baryon_h,
             softening_ratio_background=self.softening_ratio_background,
-            eps_dm_physical='%.8f'%eps_dm_physical,
-            eps_baryon_physical='%.8f'%eps_baryon_physical,
+            eps_dm_physical_h='%.8f'%eps_dm_physical_h,
+            eps_baryon_physical_h='%.8f'%eps_baryon_physical_h,
             template_set=self.template_set,
             gas_particle_mass=self.gas_particle_mass,
             swift_dir=self.swift_dir,
@@ -1167,7 +1168,11 @@ class ParticleLoad:
             num_hours_swift=self.num_hours_swift,
             swift_exec_location=self.swift_exec_location,
             num_hours_ic_gen=self.num_hours_ic_gen,
-            n_cores_ic_gen='%i'%self.n_cores_ic_gen)
+            n_cores_ic_gen='%i'%self.n_cores_ic_gen,
+            eps_dm='%.8f'%(eps_dm_h/self.HubbleParam),
+            eps_baryon='%.8f'%(eps_baryon_h/self.HubbleParam),
+            eps_dm_physical='%.8f'%(eps_dm_physical_h/self.HubbleParam),
+            eps_baryon_physical='%.8f'%(eps_baryon_physical_h/self.HubbleParam))
 
         # Make ICs param file.
         if self.make_ic_param_files:
