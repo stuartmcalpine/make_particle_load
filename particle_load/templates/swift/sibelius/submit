@@ -8,6 +8,7 @@
 #SBATCH --exclusive
 #SBATCH --cpus-per-task=28
 #SBATCH --time=$num_hours_swift:00:00
+#SBATCH --no-requeue
 
 module purge
 module load intel_comp/2018
