@@ -58,6 +58,7 @@ cdef assign_mask_cells(ndarray[int32_t, ndim=1] cell_types,
     cdef long j
     cdef int i, this_cell, idx, this_type
     cdef double half_cell = cell_width / 2.
+    cdef int checknum = num_cells // 4
 
     for i in range(num_cells):
         for j in range(num_mask_particles):

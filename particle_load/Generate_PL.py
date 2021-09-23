@@ -108,9 +108,6 @@ class ParticleLoad:
         self.starting_z = 127.0
         self.finishing_z = 0.0
 
-        # Is DM only? (Only important for softenings).
-        self.dm_only = False
-
         # Memory setup for IC gen code.
         # These need to be set to what you have compiled the IC gen code with.
         self.nmaxpart = 36045928
@@ -238,7 +235,8 @@ class ParticleLoad:
                     print('Mask coords z>=%.5f <=%.5f grid cells'%\
                             (mask_cell_centers[:, 2].min(), mask_cell_centers[:, 2].max()))
                     print('Mask cells in grid cells = %.2f'%(mask_cell_width))
-                        
+                    print('Assigning mask cells...')
+
                 # Find out which cells in our grid will be glass.
                 get_assign_mask_cells(
                     cell_types,
@@ -1219,12 +1217,14 @@ class ParticleLoad:
     def compute_softning(self, verbose=False):
         """ Compute softning legnths. """
 
-        if self.dm_only:
-            comoving_ratio = 1 / 20.  # = 0.050
-            physical_ratio = 1 / 45.  # = 0.022
+        if 'flamingo' in self.template_set.lower():
+            # Flamingo.
+            comoving_ratio = 1 / 25.
+            physical_ratio = 1 / 100.   # Transition at z=3.
         else:
-            comoving_ratio = 1 / 20.  # = 0.050
-            physical_ratio = 1 / 45.  # = 0.022
+            # EagleXL.
+            comoving_ratio = 1 / 20.
+            physical_ratio = 1 / 45.    # Transition at z = 1.25
 
         N = self.n_particles ** (1 / 3.)
         mean_inter = self.box_size / N
@@ -1234,20 +1234,19 @@ class ParticleLoad:
         eps_dm_physical = mean_inter * physical_ratio
 
         # Baryons
-        if self.dm_only:
-            eps_baryon = 0.0
-            eps_baryon_physical = 0.0
+        if 'flamingo' in self.template_set.lower():
+            eps_baryon = eps_dm
+            eps_baryon_physical = eps_dm_physical
         else:
             fac = ((self.Omega0 - self.OmegaBaryon) / self.OmegaBaryon) ** (1. / 3)
             eps_baryon = eps_dm / fac
             eps_baryon_physical = eps_dm_physical / fac
 
         if comm_rank == 0 and verbose:
-            if not self.dm_only:
-                print('Comoving Softenings: DM=%.6f Baryons=%.6f Mpc/h' % (
-                    eps_dm, eps_baryon))
-                print('Max phys Softenings: DM=%.6f Baryons=%.6f Mpc/h' % (
-                    eps_dm_physical, eps_baryon_physical))
+            print('Comoving Softenings: DM=%.6f Baryons=%.6f Mpc/h' % (
+                eps_dm, eps_baryon))
+            print('Max phys Softenings: DM=%.6f Baryons=%.6f Mpc/h' % (
+                eps_dm_physical, eps_baryon_physical))
             print('Comoving Softenings: DM=%.6f Baryons=%.6f Mpc' % (
                 eps_dm / self.HubbleParam, eps_baryon / self.HubbleParam))
             print('Max phys Softenings: DM=%.6f Baryons=%.6f Mpc' % (

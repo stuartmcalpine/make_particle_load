@@ -98,22 +98,16 @@ def make_param_file_swift(params):
     data_dir = params['swift_dir'] + '%s/'%params['f_name']
     if not os.path.exists(data_dir): os.makedirs(data_dir)
     if not os.path.exists(data_dir + 'out_files/'): os.makedirs(data_dir + 'out_files/')
+    if not os.path.exists(data_dir + 'fof/'): os.makedirs(data_dir + 'fof/')
+    if not os.path.exists(data_dir + 'snapshots/'): os.makedirs(data_dir + 'snapshots/')
 
     # Starting and finishing scale factors.
     params['starting_a'] = 1./(1+float(params['starting_z']))
     params['finishing_a'] = 1./(1+float(params['finishing_z']))
 
     # Replace values.
-    if 'tabula_' in params['template_set'].lower():
-        raise Exception("Fix this one")
-        #r = ['%.5f'%h, '%.8f'%starting_a, '%.8f'%finishing_a, '%.8f'%omega0, '%.8f'%omegaL,
-        #'%.8f'%omegaB, fname, fname, '%.8f'%(eps_dm/h),
-        #'%.8f'%(eps_baryon/h), '%.3f'%(softening_ratio_background),
-        #'%.8f'%(eps_baryon_physical/h), '%.8f'%(eps_dm_physical/h), fname]
-
-        #subprocess.call("cp ./templates/swift/%s/select_output.yml %s"%\
-        #        (template_set, data_dir), shell=True)
-    elif params['template_set'].lower() == 'sibelius':
+    if params['template_set'].lower() == 'sibelius' or \
+            params['template_set'].lower() == 'sibelius_flamingo':
         # Copy over select output.
         subprocess.call("cp ./templates/swift/%s/select_output.yml %s"%\
                 (params['template_set'], data_dir), shell=True)
@@ -131,6 +125,10 @@ def make_param_file_swift(params):
         #'%.8f'%split_mass, ic_dir, fname]
     else:
         raise ValueError("Invalid template set")
+
+    # Some extra params to compute.
+    if params['template_set'].lower() == 'sibelius_flamingo':
+        params['split_mass'] = params['gas_particle_mass'] / 10**10. * 4.
 
     t_file = './templates/swift/%s/params.yml'%params['template_set']
 
