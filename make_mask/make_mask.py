@@ -15,6 +15,8 @@ import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 from mpi4py import MPI
 
+from pdb import set_trace
+
 # ---------------------------------------
 # Load utilities from `modules` directory
 # ---------------------------------------
@@ -104,7 +106,7 @@ class MakeMask:
         
         """
         if comm_rank == 0:
-            params = yaml.load(open(param_file))
+            params = yaml.safe_load(open(param_file))
 
             # Set default values for optional parameters
             self.params = {}
@@ -140,8 +142,8 @@ class MakeMask:
                     ('sort_type', 'the method for halo sorting')
                     ]
                 for req in requirements:
-                    assert (
-                        req[0] in params.keys(), f'Need to provide {req[1]}!')
+                    assert req[0] in params.keys(), (
+                     f'Need to provide {req[1]}!')
 
                 # Make sure that we have a positive high-res region size
                 if 'highres_radius_r200' not in params:
@@ -154,6 +156,10 @@ class MakeMask:
                         "At least one of 'highres_radius_r200' and "
                         "highres_radius_r500' must be positive!")
 
+                # Set defaults for optional parameters
+                self.params['r_highres_min'] = 0
+                self.params['r_highres_buffer'] = 0
+                
             else:
                 # Consistency checks for manual target region selection
                 assert 'coords' in params.keys(), (
@@ -249,7 +255,7 @@ class MakeMask:
             names = ['X', 'Y', 'Z']
             centre = np.zeros(3)
             for icoord, prefix in enumerate(names):
-                centre[icoord] = vr_file[f'{prefix}minpot'][vr_index]
+                centre[icoord] = vr_file[f'{prefix}cminpot'][vr_index]
 
         r500_str = '' if r500 is None else f'{r500:.4f}'
         m200_str = (
@@ -322,8 +328,8 @@ class MakeMask:
         halo_index = sort_key[self.params['group_number']]
 
         # Store mass of target halo used for sorting, for later use
-        setattr(self, sort_rule, m_halo)
-        return halo_index    
+        setattr(self, sort_rule, m_halo[halo_index])
+        return halo_index
 
     def make_mask(self):
         """
@@ -558,7 +564,7 @@ class MakeMask:
             self.params['h_factor'] = 1.0
             self.params['length_unit'] = 'Mph/h'
             self.params['redshift'] = snap.HEADER['Redshift']
-            snap.select_region(*self.region)
+            snap.select_region(*self.region.T.flatten())
             snap.split_selection(comm_rank, comm_size)
 
         elif self.params['data_type'].lower() == 'swift':
@@ -566,8 +572,8 @@ class MakeMask:
             self.params['bs'] = float(snap.HEADER['BoxSize'])
             self.params['h_factor'] = float(snap.COSMOLOGY['h'])
             self.params['length_unit'] = 'Mpc'
-            self.params['redshift'] = snap.HEADER['Redshift']    
-            snap.select_region(1, *self.region)
+            self.params['redshift'] = snap.HEADER['Redshift'][0]   
+            snap.select_region(1, *self.region.T.flatten())
             snap.split_selection(comm)
 
         if comm_rank == 0:
@@ -586,7 +592,7 @@ class MakeMask:
         coords = (
             (coords - cen + 0.5 * self.params['bs']) % self.params['bs']
             - 0.5 * self.params['bs']
-
+            )
         # Select particles within target region
         l_unit = self.params['length_unit']
         if shape == 'sphere':
