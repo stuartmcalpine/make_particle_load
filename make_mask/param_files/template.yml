@@ -11,32 +11,35 @@
 # catalogue, a sorting key must be selected and the GroupNumber is the index
 # of the group in the list sorted by decreasing mass (from largest to
 # smallest).
+# 
+# Parameters marked as [Optional] need not be specified; the script will assume
+# the given defaults if they are not provided.
 
 # OPTIONS FOR MASK SETUP #
 snap_file:         path/to/parent/box  # The location of the snapshot we are creating the mask from.
 bits:              21                  # The number of bits that were used in the particle IDs for the Peano-Hilbert indexing (EAGLE runs use 14).
 fname:             my_run              # The save name for the mask file
 output_dir:        path/to/output/mask  # Directory to which the mask image and hdf5 file are saved.
-shape:             sphere              # Shape of the region to reproduce. Options are: 'sphere' (default), 'cubiod', or 'slab'
 data_type:         swift               # Type of snapshot to generate the mask from. Can be 'gadget' or 'swift' (default)
 divide_ids_by_two: False               # Switch to divide input particle IDs by 2. This is required if the IDs were multiplied by 2 during gas/DM splitting (as in EAGLE), but generally not for DM-only parent runs.
-min_num_per_cell:  3                   # Minimum number of particles per cell (default 3). Cells with fewer than `min_num_per_cell` particles are ignored
-mpc_cell_size:     3.                  # Cell size in Mpc / h (default 3.)
+min_num_per_cell:  3                   # [Optional] Minimum number of particles per cell (default 3). Cells with fewer than `min_num_per_cell` particles are ignored
+mpc_cell_size:     3.                  # [Optional] Cell size (default 3.)
 select_from_vr:    True                # Switch to select automatic selection of target haloes from Velociraptor catalogue, based on settings in `AUTOMATIC GROUP SELECTION` below. If False, the position and extent of the target region must be specified manually below (`MANUAL GROUP SELECTION`).
 
 # AMOEBA TOPOLOGY #
-topology_fill_holes:       True        # Enable algorithm for filling holes (default: True).
-topology_dilation_niter:   1           # Number of iterations of the algorithm for extrusion. Set to 0 (default) to disable.
-topology_closing_niter:    1           # Number of iterations of the algorithm for rounding edges. Set value to 0 (default) to disable.
+topology_fill_holes:       True        # [Optional] Enable algorithm for filling holes (default: True).
+topology_dilation_n_iter:   1          # [Optional] Number of iterations of the algorithm for extrusion. Set to 0 (default) to disable.
+topology_closing_n_iter:    1          # [Optional] Number of iterations of the algorithm for rounding edges. Set value to 0 (default) to disable.
 
 # AUTOMATIC GROUP SELECTION #
 vr_file:             path/to/stf/properties  # Path to the Velociraptor group catalogue to select the target halo from.
-sort_type:           m200crit          # Property by which to sort haloes for selecting the target. Options are 'm200crit' (default), 'm500crit', or 'None'. In the latter case, the halo order as in the catalogue is used.
+sort_type:           M200crit          # Property by which to sort haloes for selecting the target. Options are 'm200crit' (default), 'm500crit', or 'None'. In the latter case, the halo order as in the catalogue is used.
 group_number:        0                 # Index of the halo to centre the mask on, possibly in sorted mass order depending on value of `sort_type`.
-highres_radius_r200: 1.                # Minimum target high-resolution radius in units of the halo's r200c (may be 0 for selection only on r500c).
-highres_radius_r500: 5.                # Minimum target high-resolution radius in units of the halo's r500c (may be 0 for selection only on r200c).
+highres_radius_r200: 1.                # [Optional] Minimum target high-resolution radius in units of the halo's r200c (may be 0 [default] for selection only on r500c).
+highres_radius_r500: 5.                # [Optional] Minimum target high-resolution radius in units of the halo's r500c (may be 0 [default] for selection only on r200c).
 
 # MANUAL GROUP SELECTION #
 coords:              [0., 0., 0.]      # Centre of the target high-resolution region in the specified snapshot file.
+shape:             sphere              # Shape of the region to reproduce. Options are: 'sphere', 'cubiod', or 'slab'.
 radius:              1.                # Radius of target high-resolution region (only meaningful if `shape` is 'sphere').
 dim:                 [1., 1., 1.]      # Side lengths of target high-resolution region (only meaningful if `shape` is `cuboid` or `slab').
