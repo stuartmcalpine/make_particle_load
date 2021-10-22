@@ -81,7 +81,7 @@ class MakeMask:
     def __init__(self, param_file, save=True):
 
         # Parse the parameter file, check for consistency, and determine
-        # the centre and radius of sphere around a VR halo if desired
+        # the centre and radius of high-res sphere around a VR halo if desired.
         self.read_param_file(param_file)
 
         # Create the actual mask...
@@ -176,7 +176,7 @@ class MakeMask:
             # If desired, find the halo to center the high-resolution on
             if self.params['select_from_vr']:
                 self.params['coords'], self.params['radius'] = (
-                    self.find_group())
+                    self.find_highres_sphere())
 
             # Convert coordinates and cuboid/slab dimensions to ndarray
             self.params['coords'] = np.array(self.params['coords'], dtype='f8')
@@ -190,9 +190,9 @@ class MakeMask:
         # Broadcast the read and processed dict to all ranks.
         self.params = comm.bcast(self.params)
 
-    def find_group(self) -> Tuple[np.ndarray, float]:
+    def find_highres_sphere(self) -> Tuple[np.ndarray, float]:
         """
-        Find a particular (central) halo in the Velociraptor catalogue.
+        Determine the centre and radius of high-res sphere from Velociraptor.
 
         The selection is made based on the location of the halo in the
         catalogue, optionally after sorting them by M200c or M500c. This
@@ -205,22 +205,18 @@ class MakeMask:
         centre : ndarray(float)
             3-element array holding the centre of the high-res region.
         radius : float
-            The target radius of the high-res region. Note that there is
-            no extra padding applied to it.
+            The target radius of the high-res region, including any requested
+            padding.
             
         """
         # Make sure that we are on the root rank if over MPI
         if comm_rank != 0:
-            raise ValueError(f"find_group() called on MPI rank {comm_rank}!")
+            raise ValueError(
+                f"find_highres_sphere() called on MPI rank {comm_rank}!")
 
         # Look up the target halo index in Velociraptor catalogue
-        self.sort_rule = self.params['sort_type']
-        if self.sort_rule in ['M200crit', 'M500crit']:
-            vr_index = self.find_halo_index()
-        else:
-            vr_index = self.params['group_number']
+        vr_index = self.find_halo_index()
 
-        # Determine centre and radius of high-res region
         with h5py.File(self.params['vr_file'], 'r') as vr_file:
 
             # First, determine the radius of the high-res region
@@ -244,6 +240,10 @@ class MakeMask:
             if r_highres <= 0:
                 raise ValueError(
                     f"Invalid radius of high-res region ({r_highres})")
+
+            # If enabled, add a fixed "padding" radius to the high-res sphere
+            if self.params["r_highres_padding"] > 0:
+                r_highres += self.params['r_highres_padding']
 
             # Load halo centre
             names = ['X', 'Y', 'Z']
@@ -272,6 +272,7 @@ class MakeMask:
 
         return centre, r_highres
 
+
     def find_halo_index(self) -> int:
         """
         Find the index of the desired target halo.
@@ -295,8 +296,14 @@ class MakeMask:
         
         """
         if comm_rank != 0:
-            raise ValueError("find_halo() called on rank {comm_rank}!")
+            raise ValueError("find_halo_index() called on rank {comm_rank}!")
 
+        # If the parameter file already specified the VR index, we are done
+        if self.sort_rule.lower() == "none":
+            return self.params['group_number']
+
+        # ... otherwise, need to load the desired mass type of all (central)
+        # VR haloes, sort them, and find the entry we want
         with h5py.File(self.params['vr_file'], 'r') as vr_file:
             structType = vr_file['/Structuretype'][:]
             field_halos = np.where(structType == 10)[0]
@@ -316,8 +323,7 @@ class MakeMask:
 
         # Store mass of target halo used for sorting, for later use
         setattr(self, sort_rule, m_halo)
-        return halo_index
-    
+        return halo_index    
 
     def make_mask(self):
         """
@@ -660,7 +666,7 @@ class MakeMask:
         Returns
         -------
         coords : ndarray(float)
-            The coordinates of particles in the ICs.
+            The coordinates of particles in the ICs. Unclear in what shape...?
 
         """
         print(f"[Rank {comm_rank}] Computing initial positions of dark matter "
