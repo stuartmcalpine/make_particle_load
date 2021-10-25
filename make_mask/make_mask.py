@@ -128,9 +128,10 @@ class MakeMask:
                 'output_dir'
             ]
             for att in required_params:
-                assert att in params.keys(), (
-                    f"Need to provide a value for {att} in the parameter "
-                    "file '{param_file}'!")
+                if not att in params:
+                    raise KeyError(
+                        f"Need to provide a value for {att} in the parameter "
+                        f"file '{param_file}'!")
             
             # Run checks for automatic group selection
             if params['select_from_vr']:
@@ -139,12 +140,12 @@ class MakeMask:
                     ('group_number', 'a group number to select'),
                     ('vr_file',
                      'a Velociraptor catalogue to select groups from'),
-                    ('sort_type', 'the method for halo sorting')
+                    ('sort_rule', 'the method for halo sorting')
                     ]
                 for req in requirements:
-                    assert req[0] in params.keys(), (
-                     f'Need to provide {req[1]}!')
-
+                    if not req[0] in params:
+                        raise KeyError(f"Need to provide {req[1]}!")
+                     
                 # Make sure that we have a positive high-res region size
                 if 'highres_radius_r200' not in params:
                     params['highres_radius_r200'] = 0
@@ -152,7 +153,7 @@ class MakeMask:
                     params['highres_radius_r500'] = 0
                 if max(params['highres_radius_r200'],
                        params['highres_radius_r500']) <= 0:
-                    raise ValueError(
+                    raise KeyError(
                         "At least one of 'highres_radius_r200' and "
                         "highres_radius_r500' must be positive!")
 
@@ -162,18 +163,21 @@ class MakeMask:
                 
             else:
                 # Consistency checks for manual target region selection
-                assert 'coords' in params.keys(), (
-                    "Need to provide coordinates of target region centre!")
-                assert 'shape' in params.keys(), (
-                    "Need to specify the shape of the target region!")
-                if params['shape'] in ['cuboid', 'slab']:
-                    assert 'dim' in params.keys(), (
+                if 'coords' not in params:
+                    raise KeyError(
+                        "Need to provide coordinates for the centre of the "
+                        "high-resolution region.")
+                if 'shape' not in params:
+                    raise KeyError(
+                        "Need to specify the shape of the target region!")
+                if 'shape' in ['cuboid', 'slab'] and 'dim' not in params:
+                    raise KeyError(
                         f"Need to provide dimensions of '{params[shape]}' "
                         f"high-resolution region.")
-                elif params['shape'] == 'sphere':
-                    assert 'radius' in params.keys(), (
-                        "Need to provide the radius of target "
-                        "high-resolution sphere!")
+                if 'shape' == 'sphere' and 'radius' not in params:
+                    raise KeyError(
+                        "Need to provide the radius of target high-resolution "
+                        "sphere!")
 
             # Load all parameters into the class
             for att in params.keys():
@@ -202,7 +206,7 @@ class MakeMask:
 
         The selection is made based on the location of the halo in the
         catalogue, optionally after sorting them by M200c or M500c. This
-        is determined by the value of `self.params['sort_type']`.
+        is determined by the value of `self.params['sort_rule']`.
 
         This function is only executed by the root rank.
 
@@ -305,7 +309,7 @@ class MakeMask:
             raise ValueError("find_halo_index() called on rank {comm_rank}!")
 
         # If the parameter file already specified the VR index, we are done
-        if self.sort_rule.lower() == "none":
+        if self.params['sort_rule'].lower() == "none":
             return self.params['group_number']
 
         # ... otherwise, need to load the desired mass type of all (central)
@@ -314,7 +318,7 @@ class MakeMask:
             structType = vr_file['/Structuretype'][:]
             field_halos = np.where(structType == 10)[0]
 
-            sort_rule = self.params['sort_type']
+            sort_rule = self.params['sort_rule']
             if sort_rule == 'M200crit':
                 m_halo = vr_file['/Mass_200crit'][field_halos]
             elif sort_rule == 'M500crit':
