@@ -43,12 +43,12 @@ except ImportError:
     raise Exception(
         "Make sure you have added the `read_swift.py` module directory to "
         "your $PYTHONPATH.")
-try:
-    from read_eagle import EagleSnapshot
-except ImportError:
-    raise Exception(
-        "Make sure you have added the `read_eagle.py` module directory to "
-        "your $PYTHONPATH.")
+#try:
+#    from read_eagle import EagleSnapshot
+#except ImportError:
+#    raise Exception(
+#        "Make sure you have added the `read_eagle.py` module directory to "
+#        "your $PYTHONPATH.")
 
 
 # Set up MPI support. We do this at a global level, so that all functions
@@ -56,7 +56,6 @@ except ImportError:
 comm = MPI.COMM_WORLD
 comm_rank = comm.rank
 comm_size = comm.size
-
 
 class MakeMask:
     """
@@ -534,13 +533,13 @@ class MakeMask:
             snap.split_selection(comm_rank, comm_size)
 
         elif self.params['data_type'].lower() == 'swift':
-            snap = read_swift(self.params['snap_file'])
+            snap = read_swift(self.params['snap_file'], comm=comm)
             self.params['bs'] = float(snap.HEADER['BoxSize'])
             self.params['h_factor'] = float(snap.COSMOLOGY['h'])
             self.params['length_unit'] = 'Mpc'
-            self.params['redshift'] = snap.HEADER['Redshift'][0]   
+            self.params['redshift'] = snap.HEADER['Redshift']
             snap.select_region(1, *self.region.T.flatten())
-            snap.split_selection(comm)
+            snap.split_selection()
 
         if comm_rank == 0:
             zred = self.params['redshift']
@@ -550,7 +549,7 @@ class MakeMask:
         if comm_rank == 0:
             print("\nLoading particle data...")
         coords = snap.read_dataset(1, 'Coordinates')
-
+        
         # Shift coordinates relative to target centre, and wrap them to within
         # the periodic box (done by first shifting them up by half a box,
         # taking the modulus with the box size in each dimension, and then
