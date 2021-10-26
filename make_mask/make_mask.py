@@ -13,6 +13,7 @@ from scipy.spatial import distance
 from scipy import ndimage
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 from mpi4py import MPI
 
 from pdb import set_trace
@@ -57,6 +58,10 @@ comm = MPI.COMM_WORLD
 comm_rank = comm.rank
 comm_size = comm.size
 
+# Set up Matplotlib
+mpl.rcParams['text.usetex'] = True
+mpl.rcParams['font.family'] = 'serif'
+mpl.rcParams['font.serif'] = 'Palatino'
 
 class MakeMask:
     """
@@ -549,6 +554,7 @@ class MakeMask:
         # Load DM particle IDs and coordinates (uniform across GADGET/SWIFT)
         if comm_rank == 0:
             print("\nLoading particle data...")
+        set_trace()
         coords = snap.read_dataset(1, 'Coordinates')
 
         # Shift coordinates relative to target centre, and wrap them to within
@@ -839,7 +845,7 @@ class MakeMask:
         bound = self.mask_extent
         cell_size = self.cell_size
 
-        fig, axarr = plt.subplots(1, 3, figsize=(10, 4))
+        fig, axarr = plt.subplots(1, 3, figsize=(13, 4))
 
         # Plot each projection (xy, xz, yz) in a separate panel. `xx` and `yy`
         # denote the coordinate plotted on the x and y axis, respectively. 
@@ -850,13 +856,13 @@ class MakeMask:
             # Draw the outline of the cubic bounding region
             rect = patches.Rectangle(
                 [-bound / 2., -bound/2.], bound, bound,
-                linewidth=1, edgecolor='r', facecolor='none')
+                linewidth=1, edgecolor='maroon', facecolor='none')
             ax.add_patch(rect)
 
             # Plot particles.
             ax.scatter(
                 plot_coords[:, xx], plot_coords[:, yy],
-                s=0.5, c='blue', zorder=9, alpha=0.5)
+                s=0.5, c='blue', zorder=-100, alpha=0.3)
 
             ax.set_xlim(-bound/2. * 1.05, bound/2. * 1.05)
             ax.set_ylim(-bound/2. * 1.05, bound/2. * 1.05)
@@ -864,32 +870,33 @@ class MakeMask:
             # Plot (the centres of) selected mask cells.
             ax.scatter(
                 self.sel_coords[:, xx], self.sel_coords[:, yy],
-                marker='x', color='red', s=3, alpha=0.4)
+                marker='x', color='red', s=5, alpha=0.2)
 
             # Plot cell outlines if there are not too many of them.
             if self.sel_coords.shape[0] < 10000:
                 for e_x, e_y in zip(
                     self.sel_coords[:, xx], self.sel_coords[:, yy]):
                     rect = patches.Rectangle(
-                        (e_x - cell_size, e_y - cell_size),
+                        (e_x - cell_size/2, e_y - cell_size/2),
                         cell_size, cell_size,
-                        linewidth=0.5, edgecolor='r', facecolor='none'
+                        linewidth=0.5, edgecolor='r', facecolor='none',
+                        alpha=0.2
                     )
                     ax.add_patch(rect)
 
-            ax.set_xlabel(f"{axis_labels[xx]} [Mpc h$^{{-1}}$]")
-            ax.set_ylabel(f"{axis_labels[yy]} [Mpc h$^{{-1}}$]")
+            ax.set_xlabel(f"{axis_labels[xx]} [$h^{{-1}}$ Mpc]")
+            ax.set_ylabel(f"{axis_labels[yy]} [$h^{{-1}}$ Mpc]")
 
             # Plot target high-resolution sphere (if that is our shape).
             if self.params['shape'] == 'sphere':
                 rect = patches.Circle(
                     (0, 0), radius=self.params['radius'],
-                    linewidth=1, edgecolor='k', facecolor='none', ls='--',
+                    linewidth=1, edgecolor='grey', facecolor='none', ls='--',
                     zorder=10)
                 ax.add_patch(rect)
 
         # Save the plot
-        plt.tight_layout(pad=0.1)
+        plt.subplots_adjust(left=0.05, right=0.99, bottom=0.15, top=0.99)
         plotloc = os.path.join(
             self.params['output_dir'], self.params['fname']) + ".png"
         plt.savefig(plotloc, dpi=200)
