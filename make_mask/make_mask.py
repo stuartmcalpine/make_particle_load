@@ -398,6 +398,9 @@ class MakeMask:
         geo_centre = box[0, :] + widths / 2
         ic_coords -= geo_centre
         self.ic_coords = ic_coords
+
+        # Also need to keep track of the mask centre in the original frame.
+        self.mask_centre = self.params['coords'] + geo_centre
         
         # Build the basic mask. This is a cubic boolean array with an
         # adaptively computed cell size and extent that includes at least
@@ -635,7 +638,7 @@ class MakeMask:
             The coordinates of particles in the ICs, in the same units  as the
             box size (typically Mpc / h). The coordinates are shifted (and
             wrapped) such that the centre of the high-res region is at the
-            origin (** still need to check that this is good **)
+            origin.
         """
         print(f"[Rank {comm_rank}] Computing initial positions of dark matter "
                "particles...")
@@ -925,57 +928,53 @@ class MakeMask:
         plt.savefig(plotloc, dpi=200)
         plt.close()
 
-    def save(self):#, H, edges, bin_width, m, bounding_length, geo_centre):
+    def save(self):
         """
         Save the generated mask for further use.
 
         Note that, for consistency with IC GEN, all length dimensions must
         be in units of h^-1. This is already taken care of.
 
-        Parameters:
-        -----------
-        H : ** not actually used **
-
-        edges : 
-            ???
-
-        bin_width :
-            ???
-
-        m :
-            Indices of activated mask cells.
+        Only rank 0 should do this, but we'll check just to be sure...
 
         Returns:
         --------
         None
 
         """
-        pass
+        if comm_rank != 0: return
+        
+        outloc = os.path.join(
+            self.params['output_dir'], self.params['fname']) + ".hdf5"
 
-        """
-        # Save (everything needs to be saved in h inverse units, for the IC GEN).
-        f = h5py.File(f"{self.params['output_dir']}/{self.params['fname']:s}.hdf5", 'w')
-        coords = np.c_[edges[0][m[0]] + bin_width / 2.,
-                       edges[1][m[1]] + bin_width / 2.,
-                       edges[2][m[2]] + bin_width / 2.]
+        with h5py.File(outloc, 'w') as f:
 
-        # Push parameter file data as file attributes
-        g = f.create_group('Params')
-        for param_attr in self.params:
-            g.attrs.create(param_attr, self.params[param_attr])
+            # Push parameter file data as file attributes
+            g = f.create_group('Params')
+            for param_attr in self.params:
+                g.attrs.create(param_attr, self.params[param_attr])
 
-        ds = f.create_dataset('Coordinates', data=np.array(coords, dtype='f8'))
-        ds.attrs.create('bounding_length', bounding_length)
-        ds.attrs.create('geo_centre', geo_centre)
-        ds.attrs.create('grid_cell_width', bin_width)
-        if self.params['shape'] == 'cuboid' or self.params['shape'] == 'slab':
-            high_res_volume = self.params['dim'][0] * self.params['dim'][1] * self.params['dim'][2]
-        else:
-            high_res_volume = 4 / 3. * np.pi * self.params['radius'] ** 3.
-        ds.attrs.create('high_res_volume', high_res_volume)
-        f.close()
-        print(f"Saved {self.params['output_dir']}/{self.params['fname']:s}.hdf5")
-        """
+            # Main output is the centres of selected mask cells
+            ds = f.create_dataset(
+                'Coordinates', data=np.array(self.sel_coords, dtype='f8')
+            )
+            ds.attrs.create('Description',
+                            "Coordinates of the centres of selected mask "
+                            "cells. The (uniform) cell width is stored as the "
+                            "attribute `grid_cell_width`.")
+            
+            # Store attributes directly related to the mask as HDF5 attributes.
+            ds.attrs.create('bounding_length', self.mask_extent)
+            ds.attrs.create('geo_centre', self.mask_centre)
+            ds.attrs.create('grid_cell_width', self.cell_size)
+            if self.params['shape'] in ['cuboid', 'slab']:
+                high_res_volume = np.prod(self.params['dim'])
+            else:
+                high_res_volume = 4 / 3. * np.pi * self.params['radius']**3.
+            ds.attrs.create('high_res_volume', high_res_volume)
+
+        print(f"Saved mask data to file `{outloc}`.")
+
         
 def periodic_wrapping(r, boxsize, return_copy=False):
     """
