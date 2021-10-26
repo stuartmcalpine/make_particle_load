@@ -174,7 +174,7 @@ class MakeMask:
                 
             else:
                 # Consistency checks for manual target region selection
-                if 'coords' not in params:
+                if 'centre' not in params:
                     raise KeyError(
                         "Need to provide coordinates for the centre of the "
                         "high-resolution region.")
@@ -196,11 +196,11 @@ class MakeMask:
 
             # If desired, find the halo to center the high-resolution on
             if self.params['select_from_vr']:
-                self.params['coords'], self.params['radius'] = (
+                self.params['centre'], self.params['radius'] = (
                     self.find_highres_sphere())
 
             # Convert coordinates and cuboid/slab dimensions to ndarray
-            self.params['coords'] = np.array(self.params['coords'], dtype='f8')
+            self.params['centre'] = np.array(self.params['centre'], dtype='f8')
             if 'dim' in self.params:
                 self.params['dim'] = np.array(self.params['dim'])
 
@@ -400,7 +400,7 @@ class MakeMask:
         self.ic_coords = ic_coords
 
         # Also need to keep track of the mask centre in the original frame.
-        self.mask_centre = self.params['coords'] + geo_centre
+        self.mask_centre = self.params['centre'] + geo_centre
         
         # Build the basic mask. This is a cubic boolean array with an
         # adaptively computed cell size and extent that includes at least
@@ -484,17 +484,19 @@ class MakeMask:
             of the bounding region in the x, y, and z coordinates.
 
         """
+        centre = self.params['centre']
         frame = np.zeros((2, 3))
+
         # If the target region is a sphere, find the enclosing cube
         if self.params['shape'] == 'sphere':
-            frame[0, :] = self.params['coords'] - self.params['radius']
-            frame[1, :] = self.params['coords'] + self.params['radius']
+            frame[0, :] = centre - self.params['radius']
+            frame[1, :] = centre + self.params['radius']
 
         # If the target region is a cuboid, simply transform from centre and
         # side length to lower and upper bounds along each coordinate
         elif self.params['shape'] in ['cuboid', 'slab']:
-            frame[0, :] = self.params['coords'] - self.params['dim'] / 2.
-            frame[1, :] = self.params['coords'] + self.params['dim'] / 2.
+            frame[0, :] = centre - self.params['dim'] / 2.
+            frame[1, :] = centre + self.params['dim'] / 2.
     
         print(f"Boundary frame in selection snapshot:\n"
               f"{frame[0, 0]:.2f} / {frame[0, 1]:.2f} / {frame[0, 2]:.2f} "
@@ -516,7 +518,7 @@ class MakeMask:
         """
 
         # To make life simpler, extractsome frequently used parameters
-        cen = self.params['coords']
+        cen = self.params['centre']
         shape = self.params['shape']
 
         # First step: set up particle reader and load metadata.
@@ -553,7 +555,7 @@ class MakeMask:
         # the periodic box (done by first shifting them up by half a box,
         # taking the modulus with the box size in each dimension, and then
         # shifting it back down by half a box)
-        cen = self.params['coords']
+        cen = self.params['centre']
         coords -= cen
         periodic_wrapping(coords, self.params['bs'])
 
@@ -612,8 +614,8 @@ class MakeMask:
             self.params['radius'] *= h
         if 'dim' in keys:
             self.params['dim'] *= h
-        if 'coords' in keys:
-            self.params['coords'] *= h
+        if 'centre' in keys:
+            self.params['centre'] *= h
         if 'bs' in keys:
             self.params['bs'] *= h
         if 'mask_cell_size' in keys:
@@ -666,7 +668,7 @@ class MakeMask:
 
         # Shift coordinates to the centre of target high-resolution region and
         # apply periodic wrapping
-        ic_coords -= self.params['coords']
+        ic_coords -= self.params['centre']
         periodic_wrapping(ic_coords, self.params['bs'])
 
         return ic_coords.astype('f8')

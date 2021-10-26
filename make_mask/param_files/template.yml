@@ -39,7 +39,7 @@ highres_radius_r200: 1.                # [Optional] Minimum target high-resoluti
 highres_radius_r500: 5.                # [Optional] Minimum target high-resolution radius in units of the halo's r500c (may be 0 [default] for selection only on r200c).
 
 # MANUAL GROUP SELECTION #
-coords:              [0., 0., 0.]      # Centre of the target high-resolution region in the specified snapshot file.
+centre:             [0., 0., 0.]       # Centre of the target high-resolution region in the specified snapshot file.
 shape:             sphere              # Shape of the region to reproduce. Options are: 'sphere', 'cubiod', or 'slab'.
 radius:              1.                # Radius of target high-resolution region (only meaningful if `shape` is 'sphere').
 dim:                 [1., 1., 1.]      # Side lengths of target high-resolution region (only meaningful if `shape` is `cuboid` or `slab').
