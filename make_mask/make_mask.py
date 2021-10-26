@@ -51,7 +51,8 @@ except ImportError:
         "your $PYTHONPATH.")
 
 
-# Set up MPI support
+# Set up MPI support. We do this at a global level, so that all functions
+# can access the communicator easily
 comm = MPI.COMM_WORLD
 comm_rank = comm.rank
 comm_size = comm.size
@@ -80,7 +81,7 @@ class MakeMask:
     None
 
     """
-    def __init__(self, param_file, save=True):
+    def __init__(self, param_file, save=True, plot=True):
 
         # Parse the parameter file, check for consistency, and determine
         # the centre and radius of high-res sphere around a VR halo if desired.
@@ -88,6 +89,16 @@ class MakeMask:
 
         # Create the actual mask...
         self.make_mask()
+
+        # If desired, plot the mask and the amoeba. The actual plot is only
+        # made by rank 0, but we also need the particle data from the other
+        # ranks. 
+        if plot:
+            self.plot(H, edges, bin_width, m, ic_coords, bounding_length)
+
+        # Save the mask to hdf5
+        if save and comm_rank == 0:
+            self.save(H, edges, bin_width, m, bounding_length, geo_centre)
 
     def read_param_file(self, param_file):
         """
@@ -111,7 +122,7 @@ class MakeMask:
             # Set default values for optional parameters
             self.params = {}
             self.params['min_num_per_cell'] = 3
-            self.params['mpc_cell_size'] = 3.
+            self.params['mask_cell_size'] = 3.
             self.params['topology_fill_holes'] = True
             self.params['topology_dilation_niter'] = 0
             self.params['topology_closing_niter'] = 0
@@ -343,172 +354,102 @@ class MakeMask:
         have already been determined, either from the parameter file or
         from the Velociraptor halo catalogue.
 
+        Note that only MPI rank 0 contains the final mask, as an attribute
+        `self.mask`.
+
         """
         # Find cuboidal frame enclosing the target high-resolution region
         self.region = self.find_enclosing_frame()
         
-        # Load IDs of particles within target high-res region from snapshot
+        # Load IDs of particles within target high-res region from snapshot.
+        # Note that only particles assigned to current MPI rank are loaded,
+        # which may be none.
         ids = self.load_particles()
 
-        # Find initial positions from IDs
+        # Find initial positions from particle IDs (recall that these are
+        # really Peano-Hilbert indices). Coordinates are in the same units
+        # as the box size, centred (and wrapped) on the high-res target region.
         ic_coords = self.compute_ic_positions(ids)
 
-        # Rescale IC coords to 0-->boxsize.
-        # Move this to compute_ic_positions...
-        ic_coords *= np.true_divide(self.params['bs'], 2 ** self.params['bits'] - 1)
-        ic_coords = np.mod(
-            ic_coords - self.params['coords'] + 0.5 * self.params['bs'],
-            self.params['bs']
-            ) + self.params['coords'] - 0.5 * self.params['bs']
-
-        # Compute outline of histogram region.
-        if len(ic_coords) == 0:
-            outline_min_x = outline_min_y = outline_min_z = 1.e20
-            outline_max_x = outline_max_y = outline_max_z = -1.e20
-        else:
-            outline_min_x = np.min(ic_coords[:,0])
-            outline_min_y = np.min(ic_coords[:,1])
-            outline_min_z = np.min(ic_coords[:,2])
-
-            outline_max_x = np.max(ic_coords[:,0])
-            outline_max_y = np.max(ic_coords[:,1])
-            outline_max_z = np.max(ic_coords[:,2])
-
-        outline_min_x = comm.allreduce(outline_min_x, op=MPI.MIN)
-        outline_max_x = comm.allreduce(outline_max_x, op=MPI.MAX)
-        outline_min_y = comm.allreduce(outline_min_y, op=MPI.MIN)
-        outline_max_y = comm.allreduce(outline_max_y, op=MPI.MAX)
-        outline_min_z = comm.allreduce(outline_min_z, op=MPI.MIN)
-        outline_max_z = comm.allreduce(outline_max_z, op=MPI.MAX)
-
-        dx = outline_max_x - outline_min_x
-        dy = outline_max_y - outline_min_y
-        dz = outline_max_z - outline_min_z
-
-        # Put coordinates relative to geometric center.
-        geo_centre = np.array([outline_min_x + dx/2.,
-                               outline_min_y + dy/2.,
-                               outline_min_z + dz/2.])
-        ic_coords -= geo_centre
-
-        # Start with coordinates boundary.
-        ic_coord_outline_width = np.max([dx,dy,dz])
-
-        # Region can be buffered, x2 to be safe.
-        ic_coord_outline_width *= 2
-
-        # Can't be bigger than the box size.
-        outline_width = min(ic_coord_outline_width, self.params['bs'])
-
-        # Create mask.
-        num_bins = \
-            int(np.ceil(outline_width / (self.params['mpc_cell_size'])))
-        bins = np.linspace(-outline_width / 2., outline_width / 2., num_bins)
-        bin_width = bins[1] - bins[0]
-        H, edges = np.histogramdd(ic_coords, bins=(bins, bins, bins))
-        H = comm.allreduce(H)
-
-        # Initialize binary mask
-        bin_mask = np.zeros_like(H, dtype=np.bool)
-        m = np.where(H >= self.params['min_num_per_cell'])
-        bin_mask[m] = True
-
-        # Fill holes and extrude the mask
-        if comm_rank == 0:
-            print("[Topological extrusion (1/3)] Scanning x-y plane...")
-        for layer_id in range(bin_mask.shape[0]):
-            if self.params['topology_fill_holes']:
-                bin_mask[layer_id, :, :] = ndimage.binary_fill_holes(
-                    bin_mask[layer_id, :, :]
-                ).astype(np.bool)
-            if self.params['topology_dilation_niter'] > 0:
-                bin_mask[layer_id, :, :] = ndimage.binary_dilation(
-                    bin_mask[layer_id, :, :],
-                    iterations=self.params['topology_dilation_niter']
-                ).astype(np.bool)
-            if self.params['topology_closing_niter'] > 0:
-                bin_mask[layer_id, :, :] = ndimage.binary_closing(
-                    bin_mask[layer_id, :, :],
-                    iterations=self.params['topology_closing_niter']
-                ).astype(np.bool)
-
-        if comm_rank == 0:
-            print("[Topological extrusion (2/3)] Scanning y-z plane...")
-        for layer_id in range(bin_mask.shape[1]):
-            if self.params['topology_fill_holes']:
-                bin_mask[:, layer_id, :] = ndimage.binary_fill_holes(
-                    bin_mask[:, layer_id, :],
-                ).astype(np.bool)
-            if self.params['topology_dilation_niter'] > 0:
-                bin_mask[:, layer_id, :] = ndimage.binary_dilation(
-                    bin_mask[:, layer_id, :],
-                    iterations=self.params['topology_dilation_niter']
-                ).astype(np.bool)
-            if self.params['topology_closing_niter'] > 0:
-                bin_mask[:, layer_id, :] = ndimage.binary_closing(
-                    bin_mask[:, layer_id, :],
-                    iterations=self.params['topology_closing_niter']
-                ).astype(np.bool)
-
-        if comm_rank == 0:
-            print("[Topological extrusion (3/3)] Scanning x-z plane...")
-        for layer_id in range(bin_mask.shape[2]):
-            if self.params['topology_fill_holes']:
-                bin_mask[:, :, layer_id] = ndimage.binary_fill_holes(
-                    bin_mask[:, :, layer_id],
-                ).astype(np.bool)
-            if self.params['topology_dilation_niter'] > 0:
-                bin_mask[:, :, layer_id] = ndimage.binary_dilation(
-                    bin_mask[:, :, layer_id],
-                    iterations=self.params['topology_dilation_niter']
-                ).astype(np.bool)
-            if self.params['topology_closing_niter'] > 0:
-                bin_mask[:, :, layer_id] = ndimage.binary_closing(
-                    bin_mask[:, :, layer_id],
-                    iterations=self.params['topology_closing_niter']
-                ).astype(np.bool)
-
-        # Computing bounding region
-        m = np.where(bin_mask == True)
-        lens = np.array([
-            np.min(edges[0][m[0]]),
-            np.max(edges[0][m[0]]) + bin_width,
-            np.min(edges[1][m[1]]),
-            np.max(edges[1][m[1]]) + bin_width,
-            np.min(edges[2][m[2]]),
-            np.max(edges[2][m[2]]) + bin_width
-        ])
-        dx = np.max((np.abs(lens[0])*2, np.abs(lens[1])*2))
-        dy = np.max((np.abs(lens[2])*2, np.abs(lens[3])*2))
-        dz = np.max((np.abs(lens[4])*2, np.abs(lens[5])*2))
-
-        bounding_length = np.max([dx,dy,dz])
-
+        # Find the corners of a box enclosing all particles in the ICs. 
+        box, widths = self.compute_bounding_box(ic_coords)        
         if comm_rank == 0:
             print(
-                f"Encompassing dimensions:\n"
-                f"\tx = {dx:.4f} Mpc/h\n"
-                f"\ty = {dy:.4f} Mpc/h\n"
-                f"\tz = {dz:.4f} Mpc/h\n"
-                f"Bounding length: {bounding_length:.4f} Mpc/h"
-            )
+                f"Determined bounding box edges in ICs: "
+                f"{box[0, 0]:.3f} / {box[0, 1]:.3f} / {box[0, 2]:.3f} "
+                f"- {box[1, 0]:.3f} / {box[1, 1]:, 3f} / {box[1, 2]:.3f}"
+                )
 
-            lens_volume = dx*dy*dz
-            tot_cells = len(H[0][m[0]])
-            tot_cells_volume = tot_cells * bin_width**3.
-            print(f'There are {tot_cells:d} total mask cells.')
-            print(f'Cells fill {tot_cells_volume/lens_volume:.8f} per cent of region.')
+        # For simplicity, shift the coordinates relative to geometric box
+        # center, so that particles extend equally far in each direction
+        geo_centre = box[0, :] + widths / 2
+        ic_coords -= geo_centre
 
-        # Make sure everything is in the bounding box.
-        assert np.all(np.abs(ic_coords)+bin_width/2. <= bounding_length/2.),\
-                'Not everything in bounding box'
+        # Build the basic mask. This is a cubic boolean array with an adaptively
+        # computed cell size and extent that includes at least twice the entire
+        # bounding box. It is True for any cells that contain at least the
+        # specified threshold number of particles.
+        #
+        # `edges` holds the spatial coordinate of the lower cell edges. By
+        # construction, this is the same along all three dimensions. 
+        #
+        # We make the mask larger than the actual particle extent, for reasons
+        # that may emerge later... **TODO**
+        self.mask, edges = self.build_basic_mask(ic_coords, np.max(widths) * 2)
+        self.cell_size = edges[1] - edges[0]
 
-        # Plot the mask and the amoeba
-        self.plot(H, edges, bin_width, m, ic_coords, bounding_length)
+        # We only need MPI rank 0 for the rest, since we are done working with
+        # individual particles
+        if comm_rank > 0:
+            return
 
-        # Save the mask to hdf5
-        if comm_rank == 0:
-            self.save(H, edges, bin_width, m, bounding_length, geo_centre)
+        # Fill holes and extrude the mask. This has to be done separately
+        # for each of the three projections.
+        for idim, name in enumerate(['x-y', 'y-z', 'x-z']):
+            print(f"Topological extrision ({idim}/3, {name} plane)...")
+            self.refine_mask(idim)
+
+        # Finally, we need to find the centre of all selected mask cells, and
+        # the box enclosing all those cells
+        ind_sel = np.where(self.mask)   # Note: 3-tuple of ndarrays!
+        self.sel_coords = np.vstack(
+            (edges[ind_sel[0]], edges[ind_sel[1], edges[ind_sel[2]]])).T
+        self.sel_coords += 0.5 * self.cell_size
+        
+        # Find the box that (fully) encloses all selected cells, and the
+        # side length of its surrounding cube
+        self.mask_box, self.mask_widths = self.compute_bounding_box(
+            self.sel_coords)
+        self.mask_box[0, :] -= self.cell_size * 0.5
+        self.mask_box[1, :] += self.cell_size * 0.5
+        self.mask_widths += self.cell_size
+        self.mask_extent = np.max(self.mask_widths)
+
+        print(
+            f"Encompassing dimensions:\n"
+            f"\tx = {self.mask_widths[0]:.4f} Mpc/h\n"
+            f"\ty = {self.mask_widths[1]:.4f} Mpc/h\n"
+            f"\tz = {self.mask_widths[2]:.4f} Mpc/h\n"
+            f"Bounding length: {self.mask_extent:.4f} Mpc/h"
+        )
+
+        box_volume = np.prod(self.mask_widths)
+        n_sel = len(ind_sel)
+        cell_fraction = n_sel * self.cell_size**3 / box_volume
+        cell_fraction_cube = n_sel * self.cell_size**3 / self.mask_extent**3
+        print(f'There are {len(ind_sel):d} selected mask cells.')        
+        print(f'They fill {cell_fraction * 100:.3f} per cent of the bounding '
+              f'box ({cell_fraction_cube * 100:.3f} per cent of bounding cube).'
+              )
+
+        # Final sanity check: make sure that all particles are within cubic
+        # bounding box
+        if (not np.all(box[0, :] >= self.mask_extent / 2) or
+            not np.all(box[1, :] <= self.mask_extent / 2)):
+            raise ValueError(
+                f"Cubic bounding box around final mask does not enclose all "
+                f"input particles! ({box} vs. {self.mask_extent})"
+                )
 
     def find_enclosing_frame(self):
         """
@@ -657,8 +598,8 @@ class MakeMask:
             self.params['coords'] *= h
         if 'bs' in keys:
             self.params['bs'] *= h
-        if 'mpc_cell_size' in keys:
-            self.params['mpc_cell_size'] *= h
+        if 'mask_cell_size' in keys:
+            self.params['mask_cell_size'] *= h
 
     def compute_ic_positions(self, ids) -> np.ndarray:
         """
@@ -676,117 +617,322 @@ class MakeMask:
         Returns
         -------
         coords : ndarray(float)
-            The coordinates of particles in the ICs. Unclear in what shape...?
-
+            The coordinates of particles in the ICs, in the same units  as the
+            box size (typically Mpc / h). The coordinates are shifted (and
+            wrapped) such that the centre of the high-res region is at the
+            origin (** still need to check that this is good **)
         """
         print(f"[Rank {comm_rank}] Computing initial positions of dark matter "
                "particles...")
 
-        # Converting the PH keys back to positions is done using an
-        # external utility function.
-        X, Y, Z = peano_hilbert_key_inverses(ids, self.params['bits'])
-        ic_coords = np.vstack((X, Y, Z)).T
+        # First, convert the (scalar) PH key for each particle back to a triple
+        # of indices giving its (quantised, normalized) offset from the origin
+        # in x, y, z. This must use the same grid (bits value) as was used
+        # when generating the ICs for the base simulation. An external utility
+        # function is used to handle the PH algorithm.
+        x, y, z = peano_hilbert_key_inverses(ids, self.params['bits'])
+        ic_coords = np.vstack((x, y, z)).T
 
         # Make sure that we get consistent values for the coordinates
-        assert 0 <= np.all(ic_coords) < 2 ** self.params['bits'], (
-            'Initial coords out of range!')
-        return np.array(ic_coords, dtype='f8')
+        ic_min, ic_max = np.min(ic_coords), np.max(ic_coords)
+        if ic_min < 0 or ic_max > 2**self.params['bits']:
+            raise ValueError(
+                f"Inconsistent range of quantized IC coordinates: {ic_min} - "
+                f"{ic_max} (allowed: 0 - {2**self.params['bits']})"
+                )
 
-            
-    def plot(self, H, edges, bin_width, m, ic_coords, bounding_length):
-        """ Plot the region outline. """
-        axes_label = ['x', 'y', 'z']
+        # Re-scale quantized coordinates to floating-point distances between
+        # origin and centre of corresponding grid cell
+        cell_size = self.params['bs'] / 2**self.params['bits']
+        ic_coords = (ic_coords.astype('float') + 0.5) * cell_size
 
-        # What's the width of the slab?
-        if self.params['shape'] == 'slab':
-            slab_width = min(
-                    self.region[1] - self.region[0],
-                    self.region[3] - self.region[2],
-                    self.region[5] - self.region[4]) * self.params['h_factor']
+        # Awaiting check with Stu whether the `-1` here is real or not...
+        # (old code)
+        #ic_coords *= np.true_divide(self.params['bs'], 2 ** self.params['bits'] - 1)
 
-        # Subsample.
-        idx = np.random.permutation(len(ic_coords))
-        if len(ic_coords) > 1e5:
-            idx = np.random.permutation(len(ic_coords))
-            plot_coords = ic_coords[idx][:100000]
-        else:
-            plot_coords = ic_coords[idx]
+        # Shift coordinates to the centre of target high-resolution region and
+        # apply periodic wrapping
+        ic_coords -= self.params['coords']
+        ic_coords = ((ic_coords + 0.5 * self.params['bs']) % self.params['bs']
+                     - 0.5 * self.params['bs'])
 
+        return ic_coords.astype('f8')
+
+    def compute_bounding_box(self, r):
+        """
+        Find the corners of a box enclosing a set of points across MPI ranks.
+
+        Parameters:
+        -----------
+        r : ndarray(float) [N_part, 3]
+            The coordinates of the `N_part` particles held on this MPI rank.
+            The second array dimension holds the x/y/z components per point.
+
+        Returns:
+        --------
+        box : ndarray(float) [2, 3]
+            The coordinates of the lower and upper vertices of the bounding box.
+            These are stored in index 0 and 1 along the first dimension,
+            respectively.
+
+        widths : ndarray(float) [3]
+            The width of the box along each dimension.
+
+        """ 
+        box = np.zeros((2, 3))
+
+        # Find vertices of local particles. If there are none, set lower (upper)
+        # vertices to very large (very negative) numbers so that they will not
+        # influence the cross-MPI min/max finding below. 
+        n_part = r.shape[0]
+        box[0, :] = np.min(r, axis=0) if n_part > 0 else sys.float_info.max
+        box[1, :] = np.max(r, axis=0) if n_part > 0 else -sys.float_info.max
+
+        # Now compare min/max values across all MPI rankd
+        for idim in range(3):
+            box[0, idim] = comm.allreduce(box[0, idim], op=MPI.MIN)
+            box[1, idim] = comm.allreduce(box[1, idim], op=MPI.MAX)
+
+        return box, box[1, :] - box[0, :]
+
+    def build_basic_mask(self, r, min_width):
+        """
+        Build the basic mask for an input particle distribution.
+
+        This is a cubic boolean array with an adaptively computed cell size and
+        extent that stretches by at least `min_width` in each dimension.
+        The mask value is True for any cells that contain at least the
+        specified threshold number of particles.
+
+        The mask is based on particles on all MPI ranks.
+        
+        Parameters
+        ----------
+        r : ndarray(float) [N_p, 3]
+            The coordinates of (local) particles for which to create the mask.
+            They must be shifted such that they lie within +/- `min_width` from
+            the origin in each dimension.
+        max_width : float
+            The maximum extent of the mask along all six directions from the
+            origin. It may get shrunk if `max_width` is larger than the whole
+            box, but the mask will always remain centred on the origin. Note
+            that this value must be identical across MPI ranks.
+
+        Returns
+        -------
+        mask : ndarray(Bool) [N_cell, 3]
+            The constructed boolean mask.
+        edges : ndarray(N_cell + 1)
+            The cell edges (same along each dimension)
+
+        """
+        # Find out how far from the origin we need to extend the mask
+        width = min(max_width, self.params['bs'])
+
+        # Work out how many cells we need along each dimension so that the cells
+        # remain below the specified threshold size
+        num_bins = int(np.ceil(width / self.params['mask_cell_size']))
+
+        # Compute number of particles in each cell, across MPI ranks
+        n_p, edges = np.histogramdd(r, bins=num_bins, range=[(-width, width)]*3)
+        n_p = comm.allreduce(n_p, op=MPI.SUM)
+
+        # Convert particle counts to True/False mask
+        mask = n_p >= self.params['min_num_per_cell']
+
+        return mask, edges[0]   # edges is a 3-tuple
+
+    def refine_mask(self, idim):
+        """
+        Refine the mask by checking for holes and processing the morphology.
+
+        The refinement is performed iteratively along all slices along the
+        specified axis. It consists of the ndimage operations ...
+
+        The mask array (`self.mask`) is modified in place.
+
+        Parameters
+        ----------
+        idim : int
+            The perpendicular to which slices of the mask are to be processed
+            (0: x, 1: y, 2: z)
+
+        Returns
+        -------
+        None  
+
+        """
+        # Process each layer (slice) of the mask in turn
+        for layer_id in range(bin_mask.shape[idim]):
+
+            # Since each dimension loops over a different axis, set up an
+            # index for the current layer
+            if idim == 0:
+                index = np._s[layer_id, :, :]
+            elif idim == 1:
+                index = np._s[:, layer_id, :]
+            elif idim == 2:
+                index = np._s[:, :, layer_id]
+            else:
+                raise ValueError(f"Invalid value idim={idim}!")
+
+            # Step 1: fill holes in the mask
+            if self.params['topology_fill_holes']:
+                self.mask[index] = ndimage.binary_fill_holes(
+                    self.mask[index]
+                ).astype(np.bool)
+
+            # Step 2: regularize the morphology 
+            if self.params['topology_dilation_niter'] > 0:
+                self.mask[index] = ndimage.binary_dilation(
+                    self.mask[index],
+                    iterations=self.params['topology_dilation_niter']
+                ).astype(np.bool)
+            if self.params['topology_closing_niter'] > 0:
+                self.mask[index] = ndimage.binary_closing(
+                    self.mask[index],
+                    iterations=self.params['topology_closing_niter']
+                ).astype(np.bool)
+
+    def reduce_mask(self, edges):
+        """
+        Extract selected cells from the cubic mask.
+
+        This produces the final output of the mask generation, which is
+        used to generate the zoom-in ICs.
+    
+        Parameters
+        ----------
+        edges : ndarray(float)
+            The edges of all cells along one dimension (the same along each
+            axis).
+
+        Stores as attributes
+        --------------------
+        sel_coords : ndarray(float) [N_sel, 3]
+            The coordinates of the centre of each selected cell.
+        extent : float
+            The full width of the cubic box enclosing all selected cells.
+
+        """
+        # Find selected cells (i.e. those with a mask value of `True`)
+        # and the coordinates of their centres
+        ind_sel = np.where(self.mask)   # Note: 3-tuple of ndarrays!
+        self.sel_coords = np.vstack(
+            (edges[ind_sel[0]], edges[ind_sel[1], edges[ind_sel[2]]])).T
+        self.sel_coords += 0.5 * self.cell_size
+
+        # The half-size of the bounding box is the maximum (absolute) value
+        # of selected cells, plus half a cell size to go from the centre to
+        # the outer cell edge.
+        self.extent = np.max(np.abs(self.sel_coords)) + 0.5 * self.cell_size
+        self.extent *= 2        
+
+    def plot(self, max_npart_per_rank=int(1e5)):
+        """
+        Make an overview plot of the zoom-in region.
+
+        Note that this function must be called on all MPI ranks, even though
+        only rank 0 generates the actual plot. The others are still required
+        to access (a subset of) the particles stored on them.
+
+        """
+        axis_labels = ['x', 'y', 'z']
+
+        # Select a random sub-sample of particle coordinates on each rank and
+        # combine them all on rank 0
+        n_sample = int(min(self.ic_coords, max_npart_per_rank))
+        plot_coords = np.random.choice(self.ic_coords, n_sample, resample=False)
         plot_coords = comm.gather(plot_coords)
 
-        # Core 0 plots.
-        if comm_rank == 0:
-            plot_coords = np.vstack(plot_coords)
-            if self.params['shape'] == 'slab':
-                fig, axarr = plt.subplots(4, 1, figsize=(20, 12))
-            else:
-                fig, axarr = plt.subplots(1, 3, figsize=(10, 4))
+        # Only need rank 0 from here on, combine all particles there.
+        if comm_rank != 0: return
+        plot_coords = np.vstack(plot_coords)
 
-            count = 0
-            for i, j in zip([0, 0, 1, 0, 1], [1, 2, 2, 2, 2]):
-                if self.params['shape'] == 'slab' and j != 2: continue
-                if self.params['shape'] != 'slab' and count > 2: break
-                if self.params['shape'] != 'slab': axarr[count].set_aspect('equal')
+        # Extract frequently needed attributes for easier structure
+        bound = self.extent
 
-                # This outlines the bounding region.
-                rect = patches.Rectangle([-bounding_length/2., -bounding_length/2.],
-                    bounding_length, bounding_length,
-                    linewidth=1, edgecolor='r', facecolor='none'
-                )
+        fig, axarr = plt.subplots(1, 3, figsize=(10, 4))
 
-                # Plot particles.
-                axarr[count].scatter(plot_coords[:, i], plot_coords[:, j], s=0.5, c='blue',
-                        zorder=9, alpha=0.5)
-                axarr[count].add_patch(rect)
-                if self.params['shape'] == 'slab':
-                    pass
-                    #if count > 1:
-                    #    axarr[count].set_ylim(-lens[j * 2]+15, -lens[j * 2]-1)
-                    #    axarr[count].set_xlim(-lens[i * 2] - 1, lens[i * 2 + 1] + 1)
-                    #else:
-                    #    axarr[count].set_ylim(lens[j * 2]-15, lens[j * 2]+1)
-                    #    axarr[count].set_xlim(-lens[i * 2] - 1, lens[i * 2 + 1] + 1)
-                else:
-                    axarr[count].set_xlim(-(bounding_length/2.)*1.05, (bounding_length/2.)*1.05)
-                    axarr[count].set_ylim(-(bounding_length/2.)*1.05, (bounding_length/2.)*1.05)
+        # Plot each projection (xy, xz, yz) in a separate panel. `xx` and `yy`
+        # denote the coordinate plotted on the x and y axis, respectively. 
+        for ii, (xx, yy) in enumerate(zip([0, 0, 1], [1, 2, 2])):
+            ax = axarr[ii]
+            ax.set_aspect['equal']
 
-                # Plot cell bin centers.
-                axarr[count].scatter(
-                    edges[i][m[i]] + bin_width / 2.,
-                    edges[j][m[j]] + bin_width / 2.,
-                    marker='x', color='red', s=3, alpha=0.4
-                )
+            # Draw the outline of the cubic bounding region
+            rect = patches.Rectangle(
+                [-bound / 2., -bound/2.], bound, bound,
+                linewidth=1, edgecolor='r', facecolor='none')
+            ax.add_patch(rect)
 
-                # Plot cell outlines if there isn't too many of them.
-                if len(m[i]) < 10000:
-                    for e_x, e_y in zip(edges[i][m[i]], edges[j][m[j]]):
-                        rect = patches.Rectangle(
-                            (e_x, e_y),
-                            bin_width,
-                            bin_width,
-                            linewidth=0.5,
-                            edgecolor='r',
-                            facecolor='none'
-                        )
-                        axarr[count].add_patch(rect)
+            # Plot particles.
+            ax.scatter(
+                plot_coords[:, i], plot_coords[:, j],
+                s=0.5, c='blue', zorder=9, alpha=0.5)
 
-                axarr[count].set_xlabel(f"{axes_label[i]} [Mpc h$^{{-1}}$]")
-                axarr[count].set_ylabel(f"{axes_label[j]} [Mpc h$^{{-1}}$]")
-                count += 1
+            ax.set_xlim(-bound/2. * 1.05, bound/2. * 1.05)
+            ax.set_ylim(-bound/2. * 1.05, bound/2. * 1.05)
 
-            # Plot target sphere.
+            # Plot (the centres of) selected mask cells.
+            ax.scatter(
+                self.sel_coords[:, xx], self.sel_coords[:, yy],
+                marker='x', color='red', s=3, alpha=0.4)
+
+            # Plot cell outlines if there are not too many of them.
+            if self.sel_coords.shape[0] < 10000:
+                for e_x, e_y in zip(
+                    self.sel_coords[:, xx], self.sel_coords[:, yy]):
+                    rect = patches.Rectangle(
+                        (e_x-self.bin_width, e_y-self.bin_width),
+                        bin_width, bin_width,
+                        linewidth=0.5, edgecolor='r', facecolor='none'
+                    )
+                    ax.add_patch(rect)
+
+            ax.set_xlabel(f"{axis_labels[xx]} [Mpc h$^{{-1}}$]")
+            ax.set_ylabel(f"{axis_labels[yy]} [Mpc h$^{{-1}}$]")
+
+            # Plot target high-resolution sphere (if that is our shape).
             if self.params['shape'] == 'sphere':
-                for i in range(3):
-                    rect = patches.Circle((0,0), radius=self.params['radius'],
-                        linewidth=1, edgecolor='k', facecolor='none', ls='--',
-                        zorder=10)
-                    axarr[i].add_patch(rect)
+                rect = patches.Circle(
+                    (0, 0), radius=self.params['radius'],
+                    linewidth=1, edgecolor='k', facecolor='none', ls='--',
+                    zorder=10)
+                ax.add_patch(rect)
 
-            plt.tight_layout(pad=0.1)
-            plt.savefig(f"{self.params['output_dir']}/{self.params['fname']:s}.png")
-            plt.close()
+        # Save the plot
+        plt.tight_layout(pad=0.1)
+        plotloc = os.path.join(
+            self.params['output_dir'], self.params['fname'], ".png")
+        plt.savefig(plotloc, dpi=200)
+        plt.close()
 
     def save(self, H, edges, bin_width, m, bounding_length, geo_centre):
+        """
+        Save the generated mask for further use.
+
+        Note that, for consistency with IC GEN, all length dimensions must
+        be in units of h^-1. This is already taken care of.
+
+        Parameters:
+        -----------
+        H : ** not actually used **
+
+        edges : 
+            ???
+
+        bin_width :
+            ???
+
+        m :
+            Indices of activated mask cells.
+
+        Returns:
+        --------
+        None
+
+        """
         # Save (everything needs to be saved in h inverse units, for the IC GEN).
         f = h5py.File(f"{self.params['output_dir']}/{self.params['fname']:s}.hdf5", 'w')
         coords = np.c_[edges[0][m[0]] + bin_width / 2.,
