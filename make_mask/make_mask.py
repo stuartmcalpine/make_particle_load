@@ -44,12 +44,12 @@ except ImportError:
     raise Exception(
         "Make sure you have added the `read_swift.py` module directory to "
         "your $PYTHONPATH.")
-try:
-    from read_eagle import EagleSnapshot
-except ImportError:
-    raise Exception(
-        "Make sure you have added the `read_eagle.py` module directory to "
-        "your $PYTHONPATH.")
+#try:
+#    from read_eagle import EagleSnapshot
+#except ImportError:
+#    raise Exception(
+#        "Make sure you have added the `read_eagle.py` module directory to "
+#        "your $PYTHONPATH.")
 
 
 # Set up MPI support. We do this at a global level, so that all functions
@@ -62,6 +62,7 @@ comm_size = comm.size
 mpl.rcParams['text.usetex'] = True
 mpl.rcParams['font.family'] = 'serif'
 mpl.rcParams['font.serif'] = 'Palatino'
+
 
 class MakeMask:
     """
@@ -102,8 +103,8 @@ class MakeMask:
             self.plot()
 
         # Save the mask to hdf5
-        if save and comm_rank == 0:
-            self.save() #H, edges, bin_width, m, bounding_length, geo_centre)
+        #if save and comm_rank == 0:
+        #    self.save() #H, edges, bin_width, m, bounding_length, geo_centre)
 
     def read_param_file(self, param_file):
         """
@@ -438,12 +439,12 @@ class MakeMask:
         self.sel_coords = np.vstack(
             (edges[ind_sel[0]], edges[ind_sel[1]], edges[ind_sel[2]])
             ).T
-        self.sel_coords += 0.5 * self.cell_size
-        
+        self.sel_coords += self.cell_size
+   
         # Find the box that (fully) encloses all selected cells, and the
         # side length of its surrounding cube
         self.mask_box, self.mask_widths = self.compute_bounding_box(
-            self.sel_coords)
+            self.sel_coords, serial_only=True)
         self.mask_box[0, :] -= self.cell_size * 0.5
         self.mask_box[1, :] += self.cell_size * 0.5
         self.mask_widths += self.cell_size
@@ -502,10 +503,11 @@ class MakeMask:
         elif self.params['shape'] in ['cuboid', 'slab']:
             frame[0, :] = centre - self.params['dim'] / 2.
             frame[1, :] = centre + self.params['dim'] / 2.
-    
-        print(f"Boundary frame in selection snapshot:\n"
-              f"{frame[0, 0]:.2f} / {frame[0, 1]:.2f} / {frame[0, 2]:.2f} "
-              f"-- {frame[1, 0]:.2f} / {frame[1, 1]:.2f} / {frame[1, 2]:.2f}")
+   
+        if comm_rank == 0:
+            print(f"Boundary frame in selection snapshot:\n"
+                  f"{frame[0, 0]:.2f} / {frame[0, 1]:.2f} / {frame[0, 2]:.2f} "
+                  f"-- {frame[1, 0]:.2f} / {frame[1, 1]:.2f} / {frame[1, 2]:.2f}")
             
         return frame
             
@@ -539,13 +541,13 @@ class MakeMask:
             snap.split_selection(comm_rank, comm_size)
 
         elif self.params['data_type'].lower() == 'swift':
-            snap = read_swift(self.params['snap_file'])
+            snap = read_swift(self.params['snap_file'], comm=comm)
             self.params['bs'] = float(snap.HEADER['BoxSize'])
             self.params['h_factor'] = float(snap.COSMOLOGY['h'])
             self.params['length_unit'] = 'Mpc'
-            self.params['redshift'] = snap.HEADER['Redshift'][0]   
+            self.params['redshift'] = snap.HEADER['Redshift']
             snap.select_region(1, *self.region.T.flatten())
-            snap.split_selection(comm)
+            snap.split_selection()
 
         if comm_rank == 0:
             zred = self.params['redshift']
@@ -556,7 +558,7 @@ class MakeMask:
             print("\nLoading particle data...")
         set_trace()
         coords = snap.read_dataset(1, 'Coordinates')
-
+        
         # Shift coordinates relative to target centre, and wrap them to within
         # the periodic box (done by first shifting them up by half a box,
         # taking the modulus with the box size in each dimension, and then
@@ -569,7 +571,7 @@ class MakeMask:
         l_unit = self.params['length_unit']
         if shape == 'sphere':
             if comm_rank == 0:
-                print(f"Clipping to sphere around {cen}, with radius \n"
+                print(f"Clipping to sphere around {cen}, with radius "
                       f"{self.params['radius']:.4f} {l_unit}")
 
             dists = np.linalg.norm(coords, axis=1)
@@ -679,7 +681,7 @@ class MakeMask:
 
         return ic_coords.astype('f8')
 
-    def compute_bounding_box(self, r):
+    def compute_bounding_box(self, r, serial_only=False):
         """
         Find the corners of a box enclosing a set of points across MPI ranks.
 
@@ -709,10 +711,11 @@ class MakeMask:
         box[0, :] = np.min(r, axis=0) if n_part > 0 else sys.float_info.max
         box[1, :] = np.max(r, axis=0) if n_part > 0 else -sys.float_info.max
 
-        # Now compare min/max values across all MPI rankd
-        for idim in range(3):
-            box[0, idim] = comm.allreduce(box[0, idim], op=MPI.MIN)
-            box[1, idim] = comm.allreduce(box[1, idim], op=MPI.MAX)
+        # Now compare min/max values across all MPI ranks
+        if not serial_only:
+            for idim in range(3):
+                box[0, idim] = comm.allreduce(box[0, idim], op=MPI.MIN)
+                box[1, idim] = comm.allreduce(box[1, idim], op=MPI.MAX)
 
         return box, box[1, :] - box[0, :]
 

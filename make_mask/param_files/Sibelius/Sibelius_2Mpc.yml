@@ -1,0 +1,13 @@
+shape: sphere
+snap_file: /cosma6/data/dp004/rttw52/SibeliusOutput/Sibelius_200Mpc_1/snapshots/Sibelius_200Mpc_1_0199/Sibelius_200Mpc_1_0199.0.hdf5
+bits: 21 # 14 for old eagle
+fname: Sibelius_2Mpc
+centre: [499.343, 504.507, 497.311]
+radius: 2.1
+data_type: swift
+divide_ids_by_two: False
+mask_cell_size: 0.75
+min_num_per_cell: 1
+select_from_vr: 0
+output_dir: ./masks/
+topology_dilation_niter: 1
