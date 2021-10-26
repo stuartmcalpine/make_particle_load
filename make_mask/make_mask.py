@@ -811,41 +811,6 @@ class MakeMask:
                         iterations=self.params['topology_closing_niter']
                     ).astype(bool)
                 )
-    def reduce_mask(self, edges):
-        """
-        Extract selected cells from the cubic mask.
-
-        This produces the final output of the mask generation, which is
-        used to generate the zoom-in ICs.
-
-        *** OBSOLETE, TO BE DELETED ***
-        
-        Parameters
-        ----------
-        edges : ndarray(float)
-            The edges of all cells along one dimension (the same along each
-            axis).
-
-        Stores as attributes
-        --------------------
-        sel_coords : ndarray(float) [N_sel, 3]
-            The coordinates of the centre of each selected cell.
-        extent : float
-            The full width of the cubic box enclosing all selected cells.
-
-        """
-        # Find selected cells (i.e. those with a mask value of `True`)
-        # and the coordinates of their centres
-        ind_sel = np.where(self.mask)   # Note: 3-tuple of ndarrays!
-        self.sel_coords = np.vstack(
-            (edges[ind_sel[0]], edges[ind_sel[1], edges[ind_sel[2]]])).T
-        self.sel_coords += 0.5 * self.cell_size
-
-        # The half-size of the bounding box is the maximum (absolute) value
-        # of selected cells, plus half a cell size to go from the centre to
-        # the outer cell edge.
-        self.extent = np.max(np.abs(self.sel_coords)) + 0.5 * self.cell_size
-        self.extent *= 2        
 
     def plot(self, max_npart_per_rank=int(1e5)):
         """
