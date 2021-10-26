@@ -1,3 +1,7 @@
+"""
+Script to generate a mask for a single object.
+"""
+
 import sys
 import os
 import yaml
@@ -11,6 +15,13 @@ import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 from mpi4py import MPI
 
+from pdb import set_trace
+
+# ---------------------------------------
+# Load utilities from `modules` directory
+# ---------------------------------------
+
+# Append modules directory to PYTHONPATH
 sys.path.append(
     os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
@@ -19,585 +30,950 @@ sys.path.append(
     )
 )
 
+# Load utilities, with safety checks to make sure that they are accessible
 try:
     from peano import peano_hilbert_key_inverses
 except ImportError:
-    raise Exception("Make sure you have added the `peano.py` module directory to your $PYTHONPATH.")
+    raise Exception(
+        "Make sure you have added the `peano.py` module directory to your "
+        "$PYTHONPATH.")
 try:
     from read_swift import read_swift
 except ImportError:
-    raise Exception("Make sure you have added the `read_swift.py` module directory to your $PYTHONPATH.")
+    raise Exception(
+        "Make sure you have added the `read_swift.py` module directory to "
+        "your $PYTHONPATH.")
 try:
     from read_eagle import EagleSnapshot
 except ImportError:
-    raise Exception("Make sure you have added the `read_eagle.py` module directory to your $PYTHONPATH.")
+    raise Exception(
+        "Make sure you have added the `read_eagle.py` module directory to "
+        "your $PYTHONPATH.")
 
+
+# Set up MPI support. We do this at a global level, so that all functions
+# can access the communicator easily
 comm = MPI.COMM_WORLD
 comm_rank = comm.rank
 comm_size = comm.size
 
 
-# try:
-#     plt.style.use("../../mnras.mplstyle")
-# except:
-#     pass
-
 class MakeMask:
+    """
+    Class to construct and save a mask.
 
-    def __init__(self, param_file):
+    Upon instantiation, the parameter file is read, the mask is created
+    and (by default) immediately saved to an HDF5 file.
 
+    The class also contains a `plot` method for generating an overview
+    plot of the generated mask.
+    
+    Parameters
+    ----------
+    param_file : string
+        The name of the YAML parameter file defining the mask.
+    save : bool
+        Switch to directly save the generated mask as an HDF5 file. This is
+        True by default.
+
+    Returns
+    -------
+    None
+
+    """
+    def __init__(self, param_file, save=True, plot=True):
+
+        # Parse the parameter file, check for consistency, and determine
+        # the centre and radius of high-res sphere around a VR halo if desired.
         self.read_param_file(param_file)
+
+        # Create the actual mask...
         self.make_mask()
 
-    def read_param_file(self, param_file):
-        """ Read parameters from YAML file. """
-        if comm_rank == 0:
-            params = yaml.load(open(param_file))
+        # If desired, plot the mask and the amoeba. The actual plot is only
+        # made by rank 0, but we also need the particle data from the other
+        # ranks. 
+        if plot:
+            self.plot()
 
-            # Defaults.
+        # Save the mask to hdf5
+        if save and comm_rank == 0:
+            self.save() #H, edges, bin_width, m, bounding_length, geo_centre)
+
+    def read_param_file(self, param_file):
+        """
+        Read parameters from a specified YAML file.
+
+        See template file `param_files/template.yml` for a full listing and
+        description of parameters. The values are stored in the internal
+        `self.params` dict.
+
+        If the parameter file specifies the target centre in terms of a
+        particular Velociraptor halo, the centre and radius of the high-res
+        region are determined internally.
+
+        In the MPI version, the file is only read on one rank and the dict
+        then broadcast to all other ranks.
+        
+        """
+        if comm_rank == 0:
+            params = yaml.safe_load(open(param_file))
+
+            # Set default values for optional parameters
             self.params = {}
             self.params['min_num_per_cell'] = 3
-            self.params['mpc_cell_size'] = 3.
+            self.params['mask_cell_size'] = 3.
             self.params['topology_fill_holes'] = True
             self.params['topology_dilation_niter'] = 0
             self.params['topology_closing_niter'] = 0
-
+            
+            # Define a list of parameters that must be provided. An error
+            # is raised if they are not found in the YAML file.
             required_params = [
                 'fname',
                 'snap_file',
                 'bits',
-                'shape',
                 'data_type',
                 'divide_ids_by_two',
                 'select_from_vr',
                 'output_dir'
             ]
-
             for att in required_params:
-                assert att in params.keys(), 'Need to have %s as a param' % att
-
-            # Run checks for automatic and manual group selection
+                if not att in params:
+                    raise KeyError(
+                        f"Need to provide a value for {att} in the parameter "
+                        f"file '{param_file}'!")
+            
+            # Run checks for automatic group selection
             if params['select_from_vr']:
-                assert 'GN' in params.keys(), 'Need to provide a Group-Number for the group'
-                assert 'vr_file' in params.keys(), 'Need to provide a sub_file'
-                if 'sort_m200crit' in params.keys() and not params['sort_m200crit']:
-                    del params['sort_m200crit']
-                if 'sort_m500crit' in params.keys() and not params['sort_m500crit']:
-                    del params['sort_m500crit']
-                assert 'sort_m200crit' in params.keys() or 'sort_m500crit' in params.keys(), \
-                    'Need to provide a sort rule for the catalogue by either soring by M200crit ot M500crit.'
-                assert 'highres_radius_r200' in params.keys() or 'highres_radius_r500' in params.keys(), \
-                    'Need to provide a radius for the high-resolution region in either R200crit ot R500crit units.'
+                params['shape'] = 'sphere'
+                requirements = [
+                    ('group_number', 'a group number to select'),
+                    ('vr_file',
+                     'a Velociraptor catalogue to select groups from'),
+                    ('sort_rule', 'the method for halo sorting')
+                    ]
+                for req in requirements:
+                    if not req[0] in params:
+                        raise KeyError(f"Need to provide {req[1]}!")
+                     
+                # Make sure that we have a positive high-res region size
+                if 'highres_radius_r200' not in params:
+                    params['highres_radius_r200'] = 0
+                if 'highres_radius_r500' not in params:
+                    params['highres_radius_r500'] = 0
+                if max(params['highres_radius_r200'],
+                       params['highres_radius_r500']) <= 0:
+                    raise KeyError(
+                        "At least one of 'highres_radius_r200' and "
+                        "highres_radius_r500' must be positive!")
 
+                # Set defaults for optional parameters
+                self.params['r_highres_min'] = 0
+                self.params['r_highres_buffer'] = 0
+                
             else:
-                assert 'coords' in params.keys(), 'Need to provide coords of region.'
-                if params['shape'] == 'cuboid' or params['shape'] == 'slab':
-                    assert 'dim' in params.keys(), 'Need to provide dimensions of region.'
-                elif params['shape'] == 'sphere':
-                    assert 'radius' in params.keys(), 'Need to provide radius of sphere.'
+                # Consistency checks for manual target region selection
+                if 'centre' not in params:
+                    raise KeyError(
+                        "Need to provide coordinates for the centre of the "
+                        "high-resolution region.")
+                if 'shape' not in params:
+                    raise KeyError(
+                        "Need to specify the shape of the target region!")
+                if 'shape' in ['cuboid', 'slab'] and 'dim' not in params:
+                    raise KeyError(
+                        f"Need to provide dimensions of '{params[shape]}' "
+                        f"high-resolution region.")
+                if 'shape' == 'sphere' and 'radius' not in params:
+                    raise KeyError(
+                        "Need to provide the radius of target high-resolution "
+                        "sphere!")
 
             # Load all parameters into the class
             for att in params.keys():
                 self.params[att] = params[att]
+
+            # If desired, find the halo to center the high-resolution on
+            if self.params['select_from_vr']:
+                self.params['centre'], self.params['radius'] = (
+                    self.find_highres_sphere())
+
+            # Convert coordinates and cuboid/slab dimensions to ndarray
+            self.params['centre'] = np.array(self.params['centre'], dtype='f8')
+            if 'dim' in self.params:
+                self.params['dim'] = np.array(self.params['dim'])
+
+            # Create the output directory if it does not exist yet
+            if not os.path.isdir(self.params['output_dir']):
+                os.makedirs(self.params['output_dir'])
+                
         else:
+            # If this is not the root rank, don't read the file.
             self.params = None
 
+        # Broadcast the read and processed dict to all ranks.
         self.params = comm.bcast(self.params)
 
-        # Find the group we want to re-simulate (if selected)
-        if self.params['select_from_vr']:
-            self.params['coords'], self.params['radius'] = self.find_group()
-            self.params['shape'] = 'sphere'
+    def find_highres_sphere(self) -> Tuple[np.ndarray, float]:
+        """
+        Determine the centre and radius of high-res sphere from Velociraptor.
 
-        self.params['coords'] = np.array(self.params['coords'], dtype='f8')
-        if 'dim' in self.params.keys():
-            self.params['dim'] = np.array(self.params['dim'])
+        The selection is made based on the location of the halo in the
+        catalogue, optionally after sorting them by M200c or M500c. This
+        is determined by the value of `self.params['sort_rule']`.
 
-    def find_group(self) -> Tuple[List[float], float]:
+        This function is only executed by the root rank.
 
-        is_r200 = 'highres_radius_r200' in self.params.keys()
-        is_r500 = 'highres_radius_r500' in self.params.keys()
-        is_m200 = 'sort_m200crit' in self.params.keys()
-        is_m500 = 'sort_m500crit' in self.params.keys()
+        Returns
+        -------
+        centre : ndarray(float)
+            3-element array holding the centre of the high-res region.
+        radius : float
+            The target radius of the high-res region, including any requested
+            padding.
+            
+        """
+        # Make sure that we are on the root rank if over MPI
+        if comm_rank != 0:
+            raise ValueError(
+                f"find_highres_sphere() called on MPI rank {comm_rank}!")
 
-        # Warn if conflicts are detected
-        if comm_rank == 0:
-            if is_r200 and is_r500:
-                warn("Conflict: highres_radius_r200 and highres_radius_r500 both specified. Fallback onto R_200crit")
-            if is_m200 and is_m500:
-                warn("Conflict: sort_m200crit and sort_m500crit both specified. Fallback onto M_200crit")
+        # Look up the target halo index in Velociraptor catalogue
+        vr_index = self.find_halo_index()
 
-        # Read in halo properties
         with h5py.File(self.params['vr_file'], 'r') as vr_file:
 
-            structType = vr_file['/Structuretype'][:]
-            field_halos = np.where(structType == 10)[0]
-            _M200c = vr_file['/Mass_200crit'][field_halos] * 1e10
+            # First, determine the radius of the high-res region
+            r_r200 = 0
+            r_r500 = 0
+            r200 = vr_file['R_200crit'][vr_index]
+            if self.params['highres_radius_r200'] > 0:
+                r_r200 = r200 * self.params['highres_radius_r200']
+            try:
+                r500 = vr_file['SO_R_500_rhocrit'][vr_index]
+                r_r500 = r500 * self.params['highres_radius_r500']
+            except KeyError:
+                r500 = None
+                if self.params['highres_radius_r500'] > 0:
+                    warn("Could not load R500c, ignoring request for "
+                         f"minimum high-res radius of "
+                         f"{self.params['highres_radius_r500']} r_500.",
+                         RuntimeWarning)
 
-            # Sort group catalogue by specified rule
-            if is_m200:
-                sort_key = np.argsort(_M200c)[::-1]  # Reverse for descending order
-            elif is_m500 and not is_m200:
-                try:
-                    _M500c = vr_file['/SO_Mass_500_rhocrit'][field_halos] * 1e10
-                    ok_m500 = True
-                except KeyError as error:
-                    _M500c = _M200c
-                    ok_m500 = False
-                    if comm_rank == 0:
-                        print(error)
-                        print("If using sort_m500crit, the sorting rule will use M_200crit instead.")
-                        warn("The groups are now sorted by M_200crit.", RuntimeWarning)
-                else:
-                    sort_key = np.argsort(_M500c)[::-1]  # Reverse for descending order
-            else:
-                raise ValueError("Mass-sorting keys not correctly configured. Check the parameter file.")
+            r_highres = max(r_r200, r_r500, self.params['r_highres_min'])
+            if r_highres <= 0:
+                raise ValueError(
+                    f"Invalid radius of high-res region ({r_highres})")
 
-            # Values to strings for printing into log
-            M200c = _M200c[sort_key][self.params['GN']]
-            if is_m500:
-                M500c = _M500c[sort_key][self.params['GN']]
-                M500c_str = f"{M500c:.4f}" if ok_m500 else f"? | Fallback M_200crit: {M200c:.4f}"
-            else:
-                M500c_str = f"None"
+            # If enabled, add a fixed "padding" radius to the high-res sphere
+            if self.params["r_highres_padding"] > 0:
+                r_highres += self.params['r_highres_padding']
 
-            # Construct high resolution radius
-            R200c = vr_file['/R_200crit'][field_halos][sort_key][self.params['GN']]
-            if is_r200:
-                radius = R200c * self.params['highres_radius_r200']
-            elif is_r500 and not is_r200:
-                try:
-                    R500c = vr_file['/SO_R_500_rhocrit'][field_halos][sort_key][self.params['GN']]
-                    ok_r500 = True
-                except KeyError as error:
-                    ok_r500 = False
-                    R500c = R200c / 2
-                    if comm_rank == 0:
-                        print(error)
-                        print("If using highres_radius_r500, the selection will use R_200crit instead.")
-                        warn("The high-resolution radius is now set to R_200crit * highres_radius_r500 / 2.",
-                             RuntimeWarning)
-                else:
-                    radius = R500c * self.params['highres_radius_r500']
-            else:
-                raise ValueError("Neither highres_radius_r200 nor highres_radius_r500 were entered.")
+            # Load halo centre
+            names = ['X', 'Y', 'Z']
+            centre = np.zeros(3)
+            for icoord, prefix in enumerate(names):
+                centre[icoord] = vr_file[f'{prefix}cminpot'][vr_index]
 
-            # Values to strings for printing into log
-            if is_r500:
-                R500c_str = f"{R500c:.4f}" if ok_r500 else f"? | Fallback R_200crit/2: {R500c:.4f}"
-            else:
-                R500c_str = f"None"
-
-            xPotMin = vr_file['/Xcminpot'][field_halos][sort_key][self.params['GN']]
-            yPotMin = vr_file['/Ycminpot'][field_halos][sort_key][self.params['GN']]
-            zPotMin = vr_file['/Zcminpot'][field_halos][sort_key][self.params['GN']]
-
-        if comm_rank == 0:
-            print(
-                "Velociraptor search results:\n",
-                f"- Run name: {self.params['fname']}\tGroupNumber: {self.params['GN']}\n",
-                f"- Coordinate centre: ", ([xPotMin, yPotMin, zPotMin]), "Mpc\n",
-                f"- High-res radius: {radius:.4f} Mpc\n",
-                f"- R_200crit: {R200c:.4f} Mpc\n",
-                f"- R_500crit: {R500c_str} Mpc\n",
-                f"- M_200crit: {M200c:.4f} $M_\odot$\n",
-                f"- M_500crit: {M500c_str} $M_\odot$\n"
+        r500_str = '' if r500 is None else f'{r500:.4f}'
+        m200_str = (
+            '' if getattr(self, 'M200crit', None) is None else
+            f'{self.M200crit:.4f}')
+        m500_str = (
+            '' if getattr(self, 'M500crit', None) is None else
+            f'{self.M500crit:.4f}')
+        print(
+            "Velociraptor search results:\n"
+            f"- Run name: {self.params['fname']}\t"
+            f"GroupNumber: {self.params['group_number']}\n"
+            f"- Centre: {centre[0]:.3f} / {centre[1]:.3f} / {centre[2]:.3f} "
+            f"- High-res radius: {r_highres:.4f}\n"
+            f"- R_200crit: {r200:.4f}\n"
+            f"- R_500crit: {r500_str}\n"
+            f"- M_200crit: {m200_str}\n"
+            f"- M_500crit: {m500_str}\n"
             )
 
-        return [xPotMin, yPotMin, zPotMin], radius
+        return centre, r_highres
 
-    def compute_ic_positions(self, ids) -> np.ndarray:
-        """ Compute the positions at ICs. """
-        print('[Rank %i] Computing initial positions of dark matter particles...' % comm_rank)
-        X, Y, Z = peano_hilbert_key_inverses(ids, self.params['bits'])
-        ic_coords = np.vstack((X, Y, Z)).T
-        assert 0 <= np.all(ic_coords) < 2 ** self.params['bits'], 'Initial coords out of range'
-        return np.array(ic_coords, dtype='f8')
 
+    def find_halo_index(self) -> int:
+        """
+        Find the index of the desired target halo.
+
+        This function looks up the desired (field) halo if the selection
+        is specified in terms of a position in the mass-ordered list.
+        It should only ever be run on the root node, an error is raised if
+        this is not the case.
+
+        If the parameter file instructs to sort by M500c, but this is not
+        recorded in the Velociraptor catalogue, an error is raised.
+        
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        halo_index : int
+            The catalogue index of the target halo.
+        
+        """
+        if comm_rank != 0:
+            raise ValueError("find_halo_index() called on rank {comm_rank}!")
+
+        # If the parameter file already specified the VR index, we are done
+        if self.params['sort_rule'].lower() == "none":
+            return self.params['group_number']
+
+        # ... otherwise, need to load the desired mass type of all (central)
+        # VR haloes, sort them, and find the entry we want
+        with h5py.File(self.params['vr_file'], 'r') as vr_file:
+            structType = vr_file['/Structuretype'][:]
+            field_halos = np.where(structType == 10)[0]
+
+            sort_rule = self.params['sort_rule']
+            if sort_rule == 'M200crit':
+                m_halo = vr_file['/Mass_200crit'][field_halos]
+            elif sort_rule == 'M500crit':
+                # If M500 cannot be loaded, an error will be raised
+                m_halo = vr_file['/SO_Mass_500_rhocrit'][field_halos]
+            else:
+                raise ValueError("Unknown sorting rule '{sort_rule}'!")
+                
+        # Sort groups by specified mass, in descending order
+        sort_key = np.argsort(-m_halo)
+        halo_index = sort_key[self.params['group_number']]
+
+        # Store mass of target halo used for sorting, for later use
+        setattr(self, sort_rule, m_halo[halo_index])
+        return halo_index
+
+    def make_mask(self, padding_factor=2.0):
+        """
+        Main driver function to create a mask from a given snapshot file.
+
+        This assumes that the centre and extent of the high-res region
+        have already been determined, either from the parameter file or
+        from the Velociraptor halo catalogue.
+
+        Note that only MPI rank 0 contains the final mask, as an attribute
+        `self.mask`.
+
+        Parameters
+        ----------
+        padding_factor : float
+            The mask is set up to extend beyond the region covered by the
+            target particles by this factor. Default is 2.0, must be >= 1.0.
+        
+        """
+        if padding_factor < 1:
+            raise ValueError(
+                f"Invalid value of padding_factor={padding_factor}!")
+
+        # Find cuboidal frame enclosing the target high-resolution region
+        self.region = self.find_enclosing_frame()
+        
+        # Load IDs of particles within target high-res region from snapshot.
+        # Note that only particles assigned to current MPI rank are loaded,
+        # which may be none.
+        ids = self.load_particles()
+
+        # Find initial positions from particle IDs (recall that these are
+        # really Peano-Hilbert indices). Coordinates are in the same units
+        # as the box size, centred (and wrapped) on the high-res target region.
+        ic_coords = self.compute_ic_positions(ids)
+
+        # Find the corners of a box enclosing all particles in the ICs. 
+        box, widths = self.compute_bounding_box(ic_coords)
+        if comm_rank == 0:
+            print(
+                f"Determined bounding box edges in ICs (re-centred):\n"
+                f"\t{box[0, 0]:.3f} / {box[0, 1]:.3f} / {box[0, 2]:.3f} --> "
+                f"{box[1, 0]:.3f} / {box[1, 1]:.3f} / {box[1, 2]:.3f}")
+
+        # For simplicity, shift the coordinates relative to geometric box
+        # center, so that particles extend equally far in each direction
+        geo_centre = box[0, :] + widths / 2
+        ic_coords -= geo_centre
+        self.ic_coords = ic_coords
+
+        # Also need to keep track of the mask centre in the original frame.
+        self.mask_centre = self.params['centre'] + geo_centre
+        
+        # Build the basic mask. This is a cubic boolean array with an
+        # adaptively computed cell size and extent that includes at least
+        # twice the entire bounding box. It is True for any cells that contain
+        # at least the specified threshold number of particles.
+        #
+        # `edges` holds the spatial coordinate of the lower cell edges. By
+        # construction, this is the same along all three dimensions. 
+        #
+        # We make the mask larger than the actual particle extent, as a safety
+        # measure (**TODO**: check whether this is actually needed)
+        self.mask, edges = self.build_basic_mask(
+            ic_coords, np.max(widths) * padding_factor)
+        self.cell_size = edges[1] - edges[0]
+
+        # We only need MPI rank 0 for the rest, since we are done working with
+        # individual particles
+        if comm_rank > 0:
+            return
+
+        # Fill holes and extrude the mask. This has to be done separately
+        # for each of the three projections.
+        for idim, name in enumerate(['x-y', 'y-z', 'x-z']):
+            print(f"Topological extrision ({idim}/3, {name} plane)...")
+            self.refine_mask(idim)
+
+        # Finally, we need to find the centre of all selected mask cells, and
+        # the box enclosing all those cells
+        ind_sel = np.where(self.mask)   # Note: 3-tuple of ndarrays!
+        self.sel_coords = np.vstack(
+            (edges[ind_sel[0]], edges[ind_sel[1]], edges[ind_sel[2]])
+            ).T
+        self.sel_coords += 0.5 * self.cell_size
+        
+        # Find the box that (fully) encloses all selected cells, and the
+        # side length of its surrounding cube
+        self.mask_box, self.mask_widths = self.compute_bounding_box(
+            self.sel_coords)
+        self.mask_box[0, :] -= self.cell_size * 0.5
+        self.mask_box[1, :] += self.cell_size * 0.5
+        self.mask_widths += self.cell_size
+        self.mask_extent = np.max(self.mask_widths)
+
+        print(
+            f"Encompassing dimensions:\n"
+            f"\tx = {self.mask_widths[0]:.4f} Mpc/h\n"
+            f"\ty = {self.mask_widths[1]:.4f} Mpc/h\n"
+            f"\tz = {self.mask_widths[2]:.4f} Mpc/h\n"
+            f"Bounding length: {self.mask_extent:.4f} Mpc/h")
+
+        box_volume = np.prod(self.mask_widths)
+        n_sel = len(ind_sel)
+        cell_fraction = n_sel * self.cell_size**3 / box_volume
+        cell_fraction_cube = n_sel * self.cell_size**3 / self.mask_extent**3
+        print(f'There are {len(ind_sel):d} selected mask cells.')        
+        print(f'They fill {cell_fraction * 100:.3f} per cent of the bounding '
+              f'box ({cell_fraction_cube * 100:.3f} per cent of bounding '
+              f'cube).')
+
+        # Final sanity check: make sure that all particles are within cubic
+        # bounding box
+        if (not np.all(box[0, :] >= -self.mask_extent / 2) or
+            not np.all(box[1, :] <= self.mask_extent / 2)):
+            raise ValueError(
+                f"Cubic bounding box around final mask does not enclose all "
+                f"input particles!\n"
+                f"({box}\n   vs. {self.mask_extent:.4f})"
+            )
+        
+    def find_enclosing_frame(self):
+        """
+        Compute the bounding box enclosing the target high-res region.
+
+        This is only used to pre-select a region for particle reading from
+        the snapshot, to make things more efficient.
+
+        Returns
+        -------
+        frame : np.ndarray(float)
+            A 2x3 element array containing the lower and upper coordinates
+            of the bounding region in the x, y, and z coordinates.
+
+        """
+        centre = self.params['centre']
+        frame = np.zeros((2, 3))
+
+        # If the target region is a sphere, find the enclosing cube
+        if self.params['shape'] == 'sphere':
+            frame[0, :] = centre - self.params['radius']
+            frame[1, :] = centre + self.params['radius']
+
+        # If the target region is a cuboid, simply transform from centre and
+        # side length to lower and upper bounds along each coordinate
+        elif self.params['shape'] in ['cuboid', 'slab']:
+            frame[0, :] = centre - self.params['dim'] / 2.
+            frame[1, :] = centre + self.params['dim'] / 2.
+    
+        print(f"Boundary frame in selection snapshot:\n"
+              f"{frame[0, 0]:.2f} / {frame[0, 1]:.2f} / {frame[0, 2]:.2f} "
+              f"-- {frame[1, 0]:.2f} / {frame[1, 1]:.2f} / {frame[1, 2]:.2f}")
+            
+        return frame
+            
     def load_particles(self):
-        """ Load particles from chosen snapshot."""
+        """
+        Load relevant data from base snapshot.
 
+        In addition to particle IDs and coordinates, relevant metadata are
+        also loaded and stored in the `self.params` dict.
+
+        Returns
+        -------
+        ids : ndarray(int)
+            The Peano-Hilbert keys of the particles.
+        """
+
+        # To make life simpler, extractsome frequently used parameters
+        cen = self.params['centre']
+        shape = self.params['shape']
+
+        # First step: set up particle reader and load metadata.
+        # This is different for SWIFT and GADGET simulations, but subsequent
+        # loading 
         if self.params['data_type'].lower() == 'gadget':
             snap = EagleSnapshot(self.params['snap_file'])
             self.params['bs'] = float(snap.HEADER['BoxSize'])
             self.params['h_factor'] = 1.0
             self.params['length_unit'] = 'Mph/h'
             self.params['redshift'] = snap.HEADER['Redshift']
+            snap.select_region(*self.region.T.flatten())
+            snap.split_selection(comm_rank, comm_size)
+
         elif self.params['data_type'].lower() == 'swift':
             snap = read_swift(self.params['snap_file'])
             self.params['bs'] = float(snap.HEADER['BoxSize'])
             self.params['h_factor'] = float(snap.COSMOLOGY['h'])
             self.params['length_unit'] = 'Mpc'
-            self.params['redshift'] = snap.HEADER['Redshift']
-
-        # A sphere with radius R.
-        if self.params['shape'] == 'sphere':
-            self.region = [self.params['coords'][0] - self.params['radius'],
-                           self.params['coords'][0] + self.params['radius'],
-                           self.params['coords'][1] - self.params['radius'],
-                           self.params['coords'][1] + self.params['radius'],
-                           self.params['coords'][2] - self.params['radius'],
-                           self.params['coords'][2] + self.params['radius']]
-        # A cuboid with sides x,y,z.
-        elif self.params['shape'] == 'cuboid' or self.params['shape'] == 'slab':
-            self.region = [self.params['coords'][0] - self.params['dim'][0] / 2.,
-                           self.params['coords'][0] + self.params['dim'][0] / 2.,
-                           self.params['coords'][1] - self.params['dim'][1] / 2.,
-                           self.params['coords'][1] + self.params['dim'][1] / 2.,
-                           self.params['coords'][2] - self.params['dim'][2] / 2.,
-                           self.params['coords'][2] + self.params['dim'][2] / 2.]
-        if comm_rank == 0:
-            print('Snapshot is at redshift z=%.2f'%self.params['redshift'])
-            print('Loading region...\n', self.region)
-        if self.params['data_type'].lower() == 'gadget':
-            snap.select_region(*self.region)
-            snap.split_selection(comm_rank, comm_size)
-        elif self.params['data_type'].lower() == 'swift':
-            snap.select_region(1, *self.region)
+            self.params['redshift'] = snap.HEADER['Redshift'][0]   
+            snap.select_region(1, *self.region.T.flatten())
             snap.split_selection(comm)
 
-        # Load DM particle IDs.
         if comm_rank == 0:
-            print('Loading particle data...')
-        ids = snap.read_dataset(1, 'ParticleIDs')
+            zred = self.params['redshift']
+            print(f"Snapshot is at redshift z = {zred:.2f}.")
+
+        # Load DM particle IDs and coordinates (uniform across GADGET/SWIFT)
+        if comm_rank == 0:
+            print("\nLoading particle data...")
         coords = snap.read_dataset(1, 'Coordinates')
+
+        # Shift coordinates relative to target centre, and wrap them to within
+        # the periodic box (done by first shifting them up by half a box,
+        # taking the modulus with the box size in each dimension, and then
+        # shifting it back down by half a box)
+        cen = self.params['centre']
+        coords -= cen
+        periodic_wrapping(coords, self.params['bs'])
+
+        # Select particles within target region
+        l_unit = self.params['length_unit']
+        if shape == 'sphere':
+            if comm_rank == 0:
+                print(f"Clipping to sphere around {cen}, with radius \n"
+                      f"{self.params['radius']:.4f} {l_unit}")
+
+            dists = np.linalg.norm(coords, axis=1)
+            mask = np.where(dists <= self.params['radius'])[0]
+
+        elif self.params['shape'] in ['cuboid', 'slab']:
+            if comm_rank == 0:
+                print(f"Clipping to {shape} with "
+                      f"dx={self.params['dim'][0]:.2f} {l_unit}, "
+                      f"dy={self.params['dim'][1]:.2f} {l_unit}, "
+                      f"dz={self.params['dim'][2]:.2f} {l_unit}\n"
+                      f"around {cen} {l_unit}.")
+
+            # To find particles within target cuboid, normalize each coordinate
+            # offset by the maximum allowed extent in the corresponding
+            # dimension, and find those where the result is between -1 and 1
+            # for all three dimensions
+            mask = np.where(
+                np.max(np.abs(coords / (self.params['dim'] / 2)), axis=1)
+                <= 1)[0]
+            
+        # Secondly, we need the IDs of particles lying in the mask region
+        ids = snap.read_dataset(1, 'ParticleIDs')[mask]
+
+        # If IDs are Peano-Hilbert indices multiplied by two (as in e.g.
+        # simulations with baryons), need to undo this multiplication here
+        if self.params['divide_ids_by_two']:
+            ids = ids // 2
+
         print(f'[Rank {comm_rank}] Loaded {len(ids)} dark matter particles')
 
-        # Wrap coordinates.
-        coords = np.mod(coords - self.params['coords'] + 0.5 * self.params['bs'],
-                        self.params['bs']) + self.params['coords'] - 0.5 * self.params['bs']
-
-        # Clip to desired shape.
-        if self.params['shape'] == 'sphere':
-            if comm_rank == 0:
-                print('Clipping to sphere around %s, radius %.4f %s' % (
-                    self.params['coords'],
-                    self.params['radius'],
-                    self.params['length_unit']
-                ))
-            dists = distance.cdist(coords, self.params['coords'].reshape(1, 3), metric='euclidean').reshape(
-                len(coords), )
-            mask = np.where(dists <= self.params['radius'])
-
-        elif self.params['shape'] == 'cuboid' or self.params['shape'] == 'slab':
-            if comm_rank == 0:
-                print('Clipping to %s x=%.2f %s, y=%.2f %s, z=%.2f %s around %s %s' \
-                      % (self.params['shape'], self.params['dim'][0], self.params['length_unit'],
-                         self.params['dim'][1], self.params['length_unit'],
-                         self.params['dim'][2], self.params['length_unit'],
-                         self.params['coords'], self.params['length_unit']))
-
-            mask = np.where(
-                (coords[:, 0] >= (self.params['coords'][0] - self.params['dim'][0] / 2.)) &
-                (coords[:, 0] <= (self.params['coords'][0] + self.params['dim'][0] / 2.)) &
-                (coords[:, 1] >= (self.params['coords'][1] - self.params['dim'][1] / 2.)) &
-                (coords[:, 1] <= (self.params['coords'][1] + self.params['dim'][1] / 2.)) &
-                (coords[:, 2] >= (self.params['coords'][2] - self.params['dim'][2] / 2.)) &
-                (coords[:, 2] <= (self.params['coords'][2] + self.params['dim'][2] / 2.))
-            )
-
-        ids = ids[mask]
-        print(f'[Rank {comm_rank}] Clipped to {len(ids)} dark matter particles')
-
-        # Put back into original IDs.
-        if self.params['divide_ids_by_two']: ids = ids // 2
-
-        return ids, coords
-
-    def convert_to_inverse_h(self, coords: np.ndarray) -> np.ndarray:
+        # If the snapshot is from a user-friendly SWIFT simulation, all
+        # lengths are in 'h-free' coordinates. Unfortunately, the ICs still
+        # assume 'h^-1' units, so for consistency we now have to multiply
+        # h factor back in...
+        if self.params['data_type'].lower() == 'swift':
+            self.convert_lengths_to_inverse_h()
+             
+        return ids
+    
+    def convert_lengths_to_inverse_h(self):
+        """
+        Convert length parameters into 'h^-1' units for consistency with ICs.
+        """
         h = self.params['h_factor']
         keys = self.params.keys()
         if 'radius' in keys:
             self.params['radius'] *= h
         if 'dim' in keys:
             self.params['dim'] *= h
-        if 'coords' in keys:
-            self.params['coords'] *= h
+        if 'centre' in keys:
+            self.params['centre'] *= h
         if 'bs' in keys:
             self.params['bs'] *= h
-        if 'mpc_cell_size' in keys:
-            self.params['mpc_cell_size'] *= h
-        return coords * h
+        if 'mask_cell_size' in keys:
+            self.params['mask_cell_size'] *= h
 
-    def make_mask(self):
-        # Load particles.
-        ids, coords = self.load_particles()
-        if self.params['data_type'].lower() == 'swift':
-            coords = self.convert_to_inverse_h(coords)
+    def compute_ic_positions(self, ids) -> np.ndarray:
+        """
+        Compute the particle positions in the ICs.
 
-        # Find initial positions from IDs.
-        ic_coords = self.compute_ic_positions(ids)
+        This exploits the fact that the particle IDs are set to Peano-Hilbert
+        keys that encode the positions in the ICs.
 
-        # Rescale IC coords to 0-->boxsize.
-        ic_coords *= np.true_divide(self.params['bs'], 2 ** self.params['bits'] - 1)
-        ic_coords = np.mod(ic_coords - self.params['coords'] + 0.5 * self.params['bs'],
-                           self.params['bs']) + self.params['coords'] - 0.5 * self.params['bs']
+        Parameters
+        ----------
+        ids : ndarray(int)
+            The Particle IDs (more specifically: Peano-Hilbert keys) for which
+            to calculate IC coordinates.
 
-        # Compute outline of histogram region.
-        if len(ic_coords) == 0:
-            outline_min_x = outline_min_y = outline_min_z = 1.e20
-            outline_max_x = outline_max_y = outline_max_z = -1.e20
-        else:
-            outline_min_x = np.min(ic_coords[:,0])
-            outline_min_y = np.min(ic_coords[:,1])
-            outline_min_z = np.min(ic_coords[:,2])
+        Returns
+        -------
+        coords : ndarray(float)
+            The coordinates of particles in the ICs, in the same units  as the
+            box size (typically Mpc / h). The coordinates are shifted (and
+            wrapped) such that the centre of the high-res region is at the
+            origin.
+        """
+        print(f"[Rank {comm_rank}] Computing initial positions of dark matter "
+               "particles...")
 
-            outline_max_x = np.max(ic_coords[:,0])
-            outline_max_y = np.max(ic_coords[:,1])
-            outline_max_z = np.max(ic_coords[:,2])
+        # First, convert the (scalar) PH key for each particle back to a triple
+        # of indices giving its (quantised, normalized) offset from the origin
+        # in x, y, z. This must use the same grid (bits value) as was used
+        # when generating the ICs for the base simulation. An external utility
+        # function is used to handle the PH algorithm.
+        x, y, z = peano_hilbert_key_inverses(ids, self.params['bits'])
+        ic_coords = np.vstack((x, y, z)).T
 
-        outline_min_x = comm.allreduce(outline_min_x, op=MPI.MIN)
-        outline_max_x = comm.allreduce(outline_max_x, op=MPI.MAX)
-        outline_min_y = comm.allreduce(outline_min_y, op=MPI.MIN)
-        outline_max_y = comm.allreduce(outline_max_y, op=MPI.MAX)
-        outline_min_z = comm.allreduce(outline_min_z, op=MPI.MIN)
-        outline_max_z = comm.allreduce(outline_max_z, op=MPI.MAX)
+        # Make sure that we get consistent values for the coordinates
+        ic_min, ic_max = np.min(ic_coords), np.max(ic_coords)
+        if ic_min < 0 or ic_max > 2**self.params['bits']:
+            raise ValueError(
+                f"Inconsistent range of quantized IC coordinates: {ic_min} - "
+                f"{ic_max} (allowed: 0 - {2**self.params['bits']})"
+                )
 
-        dx = outline_max_x - outline_min_x
-        dy = outline_max_y - outline_min_y
-        dz = outline_max_z - outline_min_z
+        # Re-scale quantized coordinates to floating-point distances between
+        # origin and centre of corresponding grid cell
+        cell_size = self.params['bs'] / 2**self.params['bits']
+        ic_coords = (ic_coords.astype('float') + 0.5) * cell_size
 
-        # Put coordinates relative to geometric center.
-        geo_centre = np.array([outline_min_x + dx/2.,
-                               outline_min_y + dy/2.,
-                               outline_min_z + dz/2.])
-        ic_coords -= geo_centre
+        # Shift coordinates to the centre of target high-resolution region and
+        # apply periodic wrapping
+        ic_coords -= self.params['centre']
+        periodic_wrapping(ic_coords, self.params['bs'])
 
-        # Start with coordinates boundary.
-        ic_coord_outline_width = np.max([dx,dy,dz])
+        return ic_coords.astype('f8')
 
-        # Region can be buffered, x2 to be safe.
-        ic_coord_outline_width *= 2
+    def compute_bounding_box(self, r):
+        """
+        Find the corners of a box enclosing a set of points across MPI ranks.
 
-        # Can't be bigger than the box size.
-        outline_width = min(ic_coord_outline_width, self.params['bs'])
+        Parameters:
+        -----------
+        r : ndarray(float) [N_part, 3]
+            The coordinates of the `N_part` particles held on this MPI rank.
+            The second array dimension holds the x/y/z components per point.
 
-        # Create mask.
-        num_bins = \
-            int(np.ceil(outline_width / (self.params['mpc_cell_size'])))
-        bins = np.linspace(-outline_width / 2., outline_width / 2., num_bins)
-        bin_width = bins[1] - bins[0]
-        H, edges = np.histogramdd(ic_coords, bins=(bins, bins, bins))
-        H = comm.allreduce(H)
+        Returns:
+        --------
+        box : ndarray(float) [2, 3]
+            The coordinates of the lower and upper vertices of the bounding
+            box. These are stored in index 0 and 1 along the first dimension,
+            respectively.
 
-        # Initialize binary mask
-        bin_mask = np.zeros_like(H, dtype=np.bool)
-        m = np.where(H >= self.params['min_num_per_cell'])
-        bin_mask[m] = True
+        widths : ndarray(float) [3]
+            The width of the box along each dimension.
 
-        # Fill holes and extrude the mask
-        if comm_rank == 0:
-            print("[Topological extrusion (1/3)] Scanning x-y plane...")
-        for layer_id in range(bin_mask.shape[0]):
+        """ 
+        box = np.zeros((2, 3))
+
+        # Find vertices of local particles (on this MPI rank). If there are
+        # none, set lower (upper) vertices to very large (very negative)
+        # numbers so that they will not influence the cross-MPI min/max.
+        n_part = r.shape[0]
+        box[0, :] = np.min(r, axis=0) if n_part > 0 else sys.float_info.max
+        box[1, :] = np.max(r, axis=0) if n_part > 0 else -sys.float_info.max
+
+        # Now compare min/max values across all MPI rankd
+        for idim in range(3):
+            box[0, idim] = comm.allreduce(box[0, idim], op=MPI.MIN)
+            box[1, idim] = comm.allreduce(box[1, idim], op=MPI.MAX)
+
+        return box, box[1, :] - box[0, :]
+
+    def build_basic_mask(self, r, max_width):
+        """
+        Build the basic mask for an input particle distribution.
+
+        This is a cubic boolean array with an adaptively computed cell size and
+        extent that stretches by at least `min_width` in each dimension.
+        The mask value is True for any cells that contain at least the
+        specified threshold number of particles.
+
+        The mask is based on particles on all MPI ranks.
+        
+        Parameters
+        ----------
+        r : ndarray(float) [N_p, 3]
+            The coordinates of (local) particles for which to create the mask.
+            They must be shifted such that they lie within +/- `min_width` from
+            the origin in each dimension.
+        max_width : float
+            The maximum extent of the mask along all six directions from the
+            origin. It may get shrunk if `max_width` is larger than the whole
+            box, but the mask will always remain centred on the origin. Note
+            that this value must be identical across MPI ranks.
+
+        Returns
+        -------
+        mask : ndarray(Bool) [N_cell, 3]
+            The constructed boolean mask.
+        edges : ndarray(N_cell + 1)
+            The cell edges (same along each dimension)
+
+        """
+        # Find out how far from the origin we need to extend the mask
+        width = min(max_width, self.params['bs'])
+
+        # Work out how many cells we need along each dimension so that the
+        # cells remain below the specified threshold size
+        num_bins = int(np.ceil(width / self.params['mask_cell_size']))
+
+        # Compute number of particles in each cell, across MPI ranks
+        n_p, edges = np.histogramdd(r, bins=num_bins, range=[(-width,width)]*3)
+        n_p = comm.allreduce(n_p, op=MPI.SUM)
+
+        # Convert particle counts to True/False mask
+        mask = n_p >= self.params['min_num_per_cell']
+
+        return mask, edges[0]   # edges is a 3-tuple
+
+    def refine_mask(self, idim):
+        """
+        Refine the mask by checking for holes and processing the morphology.
+
+        The refinement is performed iteratively along all slices along the
+        specified axis. It consists of the ndimage operations ...
+
+        The mask array (`self.mask`) is modified in place.
+
+        Parameters
+        ----------
+        idim : int
+            The perpendicular to which slices of the mask are to be processed
+            (0: x, 1: y, 2: z)
+
+        Returns
+        -------
+        None  
+
+        """
+        # Process each layer (slice) of the mask in turn
+        for layer_id in range(self.mask.shape[idim]):
+
+            # Since each dimension loops over a different axis, set up an
+            # index for the current layer
+            if idim == 0:
+                index = np.s_[layer_id, :, :]
+            elif idim == 1:
+                index = np.s_[:, layer_id, :]
+            elif idim == 2:
+                index = np.s_[:, :, layer_id]
+            else:
+                raise ValueError(f"Invalid value idim={idim}!")
+
+            # Step 1: fill holes in the mask
             if self.params['topology_fill_holes']:
-                bin_mask[layer_id, :, :] = ndimage.binary_fill_holes(
-                    bin_mask[layer_id, :, :]
-                ).astype(np.bool)
+                self.mask[index] = (
+                    ndimage.binary_fill_holes(self.mask[index]).astype(bool)
+                )
+            # Step 2: regularize the morphology 
             if self.params['topology_dilation_niter'] > 0:
-                bin_mask[layer_id, :, :] = ndimage.binary_dilation(
-                    bin_mask[layer_id, :, :],
-                    iterations=self.params['topology_dilation_niter']
-                ).astype(np.bool)
+                self.mask[index] = (
+                    ndimage.binary_dilation(
+                        self.mask[index],
+                        iterations=self.params['topology_dilation_niter']
+                    ).astype(bool)
+                )
             if self.params['topology_closing_niter'] > 0:
-                bin_mask[layer_id, :, :] = ndimage.binary_closing(
-                    bin_mask[layer_id, :, :],
-                    iterations=self.params['topology_closing_niter']
-                ).astype(np.bool)
+                self.mask[index] = (
+                    ndimage.binary_closing(
+                        self.mask[index],
+                        iterations=self.params['topology_closing_niter']
+                    ).astype(bool)
+                )
 
-        if comm_rank == 0:
-            print("[Topological extrusion (2/3)] Scanning y-z plane...")
-        for layer_id in range(bin_mask.shape[1]):
-            if self.params['topology_fill_holes']:
-                bin_mask[:, layer_id, :] = ndimage.binary_fill_holes(
-                    bin_mask[:, layer_id, :],
-                ).astype(np.bool)
-            if self.params['topology_dilation_niter'] > 0:
-                bin_mask[:, layer_id, :] = ndimage.binary_dilation(
-                    bin_mask[:, layer_id, :],
-                    iterations=self.params['topology_dilation_niter']
-                ).astype(np.bool)
-            if self.params['topology_closing_niter'] > 0:
-                bin_mask[:, layer_id, :] = ndimage.binary_closing(
-                    bin_mask[:, layer_id, :],
-                    iterations=self.params['topology_closing_niter']
-                ).astype(np.bool)
+    def plot(self, max_npart_per_rank=int(1e5)):
+        """
+        Make an overview plot of the zoom-in region.
 
-        if comm_rank == 0:
-            print("[Topological extrusion (3/3)] Scanning x-z plane...")
-        for layer_id in range(bin_mask.shape[2]):
-            if self.params['topology_fill_holes']:
-                bin_mask[:, :, layer_id] = ndimage.binary_fill_holes(
-                    bin_mask[:, :, layer_id],
-                ).astype(np.bool)
-            if self.params['topology_dilation_niter'] > 0:
-                bin_mask[:, :, layer_id] = ndimage.binary_dilation(
-                    bin_mask[:, :, layer_id],
-                    iterations=self.params['topology_dilation_niter']
-                ).astype(np.bool)
-            if self.params['topology_closing_niter'] > 0:
-                bin_mask[:, :, layer_id] = ndimage.binary_closing(
-                    bin_mask[:, :, layer_id],
-                    iterations=self.params['topology_closing_niter']
-                ).astype(np.bool)
+        Note that this function must be called on all MPI ranks, even though
+        only rank 0 generates the actual plot. The others are still required
+        to access (a subset of) the particles stored on them.
 
-        # Computing bounding region
-        m = np.where(bin_mask == True)
-        lens = np.array([
-            np.min(edges[0][m[0]]),
-            np.max(edges[0][m[0]]) + bin_width,
-            np.min(edges[1][m[1]]),
-            np.max(edges[1][m[1]]) + bin_width,
-            np.min(edges[2][m[2]]),
-            np.max(edges[2][m[2]]) + bin_width
-        ])
-        dx = np.max((np.abs(lens[0])*2, np.abs(lens[1])*2))
-        dy = np.max((np.abs(lens[2])*2, np.abs(lens[3])*2))
-        dz = np.max((np.abs(lens[4])*2, np.abs(lens[5])*2))
+        """
+        axis_labels = ['x', 'y', 'z']
 
-        bounding_length = np.max([dx,dy,dz])
-
-        if comm_rank == 0:
-            print(
-                f"Encompassing dimensions:\n"
-                f"\tx = {dx:.4f} Mpc/h\n"
-                f"\ty = {dy:.4f} Mpc/h\n"
-                f"\tz = {dz:.4f} Mpc/h\n"
-                f"Bounding length: {bounding_length:.4f} Mpc/h"
-            )
-
-            lens_volume = dx*dy*dz
-            tot_cells = len(H[0][m[0]])
-            tot_cells_volume = tot_cells * bin_width**3.
-            print(f'There are {tot_cells:d} total mask cells.')
-            print(f'Cells fill {tot_cells_volume/lens_volume:.8f} per cent of region.')
-
-        # Make sure everything is in the bounding box.
-        assert np.all(np.abs(ic_coords)+bin_width/2. <= bounding_length/2.),\
-                'Not everything in bounding box'
-
-        # Plot the mask and the ameba
-        self.plot(H, edges, bin_width, m, ic_coords, bounding_length)
-
-        # Save the mask to hdf5
-        if comm_rank == 0:
-            self.save(H, edges, bin_width, m, bounding_length, geo_centre)
-
-    def plot(self, H, edges, bin_width, m, ic_coords, bounding_length):
-        """ Plot the region outline. """
-        axes_label = ['x', 'y', 'z']
-
-        # What's the width of the slab?
-        if self.params['shape'] == 'slab':
-            slab_width = min(
-                    self.region[1] - self.region[0],
-                    self.region[3] - self.region[2],
-                    self.region[5] - self.region[4]) * self.params['h_factor']
-
-        # Subsample.
-        idx = np.random.permutation(len(ic_coords))
-        if len(ic_coords) > 1e5:
-            idx = np.random.permutation(len(ic_coords))
-            plot_coords = ic_coords[idx][:100000]
-        else:
-            plot_coords = ic_coords[idx]
-
+        # Select a random sub-sample of particle coordinates on each rank and
+        # combine them all on rank 0
+        np_ic = self.ic_coords.shape[0]
+        n_sample = int(min(np_ic, max_npart_per_rank))
+        indices = np.random.choice(np_ic, n_sample, replace=False)
+        plot_coords = self.ic_coords[indices, :]
         plot_coords = comm.gather(plot_coords)
 
-        # Core 0 plots.
-        if comm_rank == 0:
-            plot_coords = np.vstack(plot_coords)
-            if self.params['shape'] == 'slab':
-                fig, axarr = plt.subplots(4, 1, figsize=(20, 12))
-            else:
-                fig, axarr = plt.subplots(1, 3, figsize=(10, 4))
+        # Only need rank 0 from here on, combine all particles there.
+        if comm_rank != 0: return
+        plot_coords = np.vstack(plot_coords)
 
-            count = 0
-            for i, j in zip([0, 0, 1, 0, 1], [1, 2, 2, 2, 2]):
-                if self.params['shape'] == 'slab' and j != 2: continue
-                if self.params['shape'] != 'slab' and count > 2: break
-                if self.params['shape'] != 'slab': axarr[count].set_aspect('equal')
+        # Extract frequently needed attributes for easier structure
+        bound = self.mask_extent
+        cell_size = self.cell_size
 
-                # This outlines the bounding region.
-                rect = patches.Rectangle([-bounding_length/2., -bounding_length/2.],
-                    bounding_length, bounding_length,
-                    linewidth=1, edgecolor='r', facecolor='none'
-                )
+        fig, axarr = plt.subplots(1, 3, figsize=(10, 4))
 
-                # Plot particles.
-                axarr[count].scatter(plot_coords[:, i], plot_coords[:, j], s=0.5, c='blue',
-                        zorder=9, alpha=0.5)
-                axarr[count].add_patch(rect)
-                if self.params['shape'] == 'slab':
-                    pass
-                    #if count > 1:
-                    #    axarr[count].set_ylim(-lens[j * 2]+15, -lens[j * 2]-1)
-                    #    axarr[count].set_xlim(-lens[i * 2] - 1, lens[i * 2 + 1] + 1)
-                    #else:
-                    #    axarr[count].set_ylim(lens[j * 2]-15, lens[j * 2]+1)
-                    #    axarr[count].set_xlim(-lens[i * 2] - 1, lens[i * 2 + 1] + 1)
-                else:
-                    axarr[count].set_xlim(-(bounding_length/2.)*1.05, (bounding_length/2.)*1.05)
-                    axarr[count].set_ylim(-(bounding_length/2.)*1.05, (bounding_length/2.)*1.05)
+        # Plot each projection (xy, xz, yz) in a separate panel. `xx` and `yy`
+        # denote the coordinate plotted on the x and y axis, respectively. 
+        for ii, (xx, yy) in enumerate(zip([0, 0, 1], [1, 2, 2])):
+            ax = axarr[ii]
+            ax.set_aspect('equal')
 
-                # Plot cell bin centers.
-                axarr[count].scatter(
-                    edges[i][m[i]] + bin_width / 2.,
-                    edges[j][m[j]] + bin_width / 2.,
-                    marker='x', color='red', s=3, alpha=0.4
-                )
+            # Draw the outline of the cubic bounding region
+            rect = patches.Rectangle(
+                [-bound / 2., -bound/2.], bound, bound,
+                linewidth=1, edgecolor='r', facecolor='none')
+            ax.add_patch(rect)
 
-                # Plot cell outlines if there isn't too many of them.
-                if len(m[i]) < 10000:
-                    for e_x, e_y in zip(edges[i][m[i]], edges[j][m[j]]):
-                        rect = patches.Rectangle(
-                            (e_x, e_y),
-                            bin_width,
-                            bin_width,
-                            linewidth=0.5,
-                            edgecolor='r',
-                            facecolor='none'
-                        )
-                        axarr[count].add_patch(rect)
+            # Plot particles.
+            ax.scatter(
+                plot_coords[:, xx], plot_coords[:, yy],
+                s=0.5, c='blue', zorder=9, alpha=0.5)
 
-                axarr[count].set_xlabel(f"{axes_label[i]} [Mpc h$^{{-1}}$]")
-                axarr[count].set_ylabel(f"{axes_label[j]} [Mpc h$^{{-1}}$]")
-                count += 1
+            ax.set_xlim(-bound/2. * 1.05, bound/2. * 1.05)
+            ax.set_ylim(-bound/2. * 1.05, bound/2. * 1.05)
 
-            # Plot target sphere.
+            # Plot (the centres of) selected mask cells.
+            ax.scatter(
+                self.sel_coords[:, xx], self.sel_coords[:, yy],
+                marker='x', color='red', s=3, alpha=0.4)
+
+            # Plot cell outlines if there are not too many of them.
+            if self.sel_coords.shape[0] < 10000:
+                for e_x, e_y in zip(
+                    self.sel_coords[:, xx], self.sel_coords[:, yy]):
+                    rect = patches.Rectangle(
+                        (e_x - cell_size, e_y - cell_size),
+                        cell_size, cell_size,
+                        linewidth=0.5, edgecolor='r', facecolor='none'
+                    )
+                    ax.add_patch(rect)
+
+            ax.set_xlabel(f"{axis_labels[xx]} [Mpc h$^{{-1}}$]")
+            ax.set_ylabel(f"{axis_labels[yy]} [Mpc h$^{{-1}}$]")
+
+            # Plot target high-resolution sphere (if that is our shape).
             if self.params['shape'] == 'sphere':
-                for i in range(3):
-                    rect = patches.Circle((0,0), radius=self.params['radius'],
-                        linewidth=1, edgecolor='k', facecolor='none', ls='--',
-                        zorder=10)
-                    axarr[i].add_patch(rect)
+                rect = patches.Circle(
+                    (0, 0), radius=self.params['radius'],
+                    linewidth=1, edgecolor='k', facecolor='none', ls='--',
+                    zorder=10)
+                ax.add_patch(rect)
 
-            plt.tight_layout(pad=0.1)
-            plt.savefig(f"{self.params['output_dir']}/{self.params['fname']:s}.png")
-            plt.close()
+        # Save the plot
+        plt.tight_layout(pad=0.1)
+        plotloc = os.path.join(
+            self.params['output_dir'], self.params['fname']) + ".png"
+        plt.savefig(plotloc, dpi=200)
+        plt.close()
 
-    def save(self, H, edges, bin_width, m, bounding_length, geo_centre):
-        # Save (everything needs to be saved in h inverse units, for the IC GEN).
-        f = h5py.File(f"{self.params['output_dir']}/{self.params['fname']:s}.hdf5", 'w')
-        coords = np.c_[edges[0][m[0]] + bin_width / 2.,
-                       edges[1][m[1]] + bin_width / 2.,
-                       edges[2][m[2]] + bin_width / 2.]
+    def save(self):
+        """
+        Save the generated mask for further use.
 
-        # Push parameter file data as file attributes
-        g = f.create_group('Params')
-        for param_attr in self.params:
-            g.attrs.create(param_attr, self.params[param_attr])
+        Note that, for consistency with IC GEN, all length dimensions must
+        be in units of h^-1. This is already taken care of.
 
-        ds = f.create_dataset('Coordinates', data=np.array(coords, dtype='f8'))
-        ds.attrs.create('bounding_length', bounding_length)
-        ds.attrs.create('geo_centre', geo_centre)
-        ds.attrs.create('grid_cell_width', bin_width)
-        if self.params['shape'] == 'cuboid' or self.params['shape'] == 'slab':
-            high_res_volume = self.params['dim'][0] * self.params['dim'][1] * self.params['dim'][2]
-        else:
-            high_res_volume = 4 / 3. * np.pi * self.params['radius'] ** 3.
-        ds.attrs.create('high_res_volume', high_res_volume)
-        f.close()
-        print(f"Saved {self.params['output_dir']}/{self.params['fname']:s}.hdf5")
+        Only rank 0 should do this, but we'll check just to be sure...
 
+        Returns:
+        --------
+        None
+
+        """
+        if comm_rank != 0: return
+        
+        outloc = os.path.join(
+            self.params['output_dir'], self.params['fname']) + ".hdf5"
+
+        with h5py.File(outloc, 'w') as f:
+
+            # Push parameter file data as file attributes
+            g = f.create_group('Params')
+            for param_attr in self.params:
+                g.attrs.create(param_attr, self.params[param_attr])
+
+            # Main output is the centres of selected mask cells
+            ds = f.create_dataset(
+                'Coordinates', data=np.array(self.sel_coords, dtype='f8')
+            )
+            ds.attrs.create('Description',
+                            "Coordinates of the centres of selected mask "
+                            "cells. The (uniform) cell width is stored as the "
+                            "attribute `grid_cell_width`.")
+            
+            # Store attributes directly related to the mask as HDF5 attributes.
+            ds.attrs.create('bounding_length', self.mask_extent)
+            ds.attrs.create('geo_centre', self.mask_centre)
+            ds.attrs.create('grid_cell_width', self.cell_size)
+            if self.params['shape'] in ['cuboid', 'slab']:
+                high_res_volume = np.prod(self.params['dim'])
+            else:
+                high_res_volume = 4 / 3. * np.pi * self.params['radius']**3.
+            ds.attrs.create('high_res_volume', high_res_volume)
+
+        print(f"Saved mask data to file `{outloc}`.")
+
+        
+def periodic_wrapping(r, boxsize, return_copy=False):
+    """
+    Apply periodic wrapping to an input set of coordinates.
+
+    Parameters
+    ----------
+    r : ndarray(float) [N, 3]
+        The coordinates to wrap.
+    boxsize : float
+        The box size to wrap the coordinates to. The units must correspond to
+        those used for `r`.
+    return_copy : bool, optional
+        Switch to return a (modified) copy of the input array, rather than
+        modifying the input in place (which is the default).    
+        
+    Returns
+    -------
+    r_wrapped : ndarray(float) [N, 3]
+        The wrapped coordinates. Only returned if `return_copy` is True,
+        otherwise the input array `r` is modified in-place.
+
+    """
+    if return_copy:
+        r_wrapped = ((r + 0.5 * boxsize) % boxsize - 0.5 * boxsize)
+        return r_wrapped
+
+    # To perform the wrapping in-place, break it down into three steps
+    r += 0.5 * boxsize
+    r %= boxsize
+    r -= 0.5 * boxsize
+        
+# Allow using the file as stand-alone script
 if __name__ == '__main__':
     x = MakeMask(sys.argv[1])
