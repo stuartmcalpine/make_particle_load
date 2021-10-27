@@ -44,6 +44,8 @@ except ImportError:
     raise Exception(
         "Make sure you have added the `read_swift.py` module directory to "
         "your $PYTHONPATH.")
+
+# Old functionality to read EAGLE-style snapshots. This is deprecated now.
 #try:
 #    from read_eagle import EagleSnapshot
 #except ImportError:
@@ -71,6 +73,22 @@ class MakeMask:
     Upon instantiation, the parameter file is read, the mask is created
     and (by default) immediately saved to an HDF5 file.
 
+    The mask data is stored in three internal attributes:
+    - self.sel_coords : ndarray(float) [N_sel, 3]
+        An array containing the relative 3D coordinates of the centres of N_sel
+        cubic cells. The volume within these cells is to be re-simulated at
+        high resolution. The origin of this coordinate system is in general
+        not the same as for the parent simulation (see `self.mask_centre`).
+    - self.cell_size : float
+        The side length each mask cell.
+    - self.mask_centre : ndarray(float) [3]
+        The origin of the mask coordinate system in the parent simulation
+        frame. In other words, these coordinates must be added to
+        `self.sel_coords` to obtain the cell positions in the parent
+        simulation. It is chosen as the geometric centre of the mask cells,
+        i.e. `self.sel_coords` extends equally far in the positive and negative
+        direction along each axis.
+    
     The class also contains a `plot` method for generating an overview
     plot of the generated mask.
     
@@ -439,7 +457,7 @@ class MakeMask:
         self.sel_coords = np.vstack(
             (edges[ind_sel[0]], edges[ind_sel[1]], edges[ind_sel[2]])
             ).T
-        self.sel_coords += self.cell_size
+        self.sel_coords += self.cell_size * 0.5
    
         # Find the box that (fully) encloses all selected cells, and the
         # side length of its surrounding cube
@@ -468,8 +486,8 @@ class MakeMask:
 
         # Final sanity check: make sure that all particles are within cubic
         # bounding box
-        if (not np.all(box[0, :] >= -self.mask_extent / 2) or
-            not np.all(box[1, :] <= self.mask_extent / 2)):
+        if (not np.all(box[0, :] - geo_centre >= -self.mask_extent / 2) or
+            not np.all(box[1, :] - geo_centre <= self.mask_extent / 2)):
             raise ValueError(
                 f"Cubic bounding box around final mask does not enclose all "
                 f"input particles!\n"
@@ -550,13 +568,12 @@ class MakeMask:
             snap.split_selection()
 
         if comm_rank == 0:
-            zred = self.params['redshift']
-            print(f"Snapshot is at redshift z = {zred:.2f}.")
+            self.zred_snap = self.params['redshift']
+            print(f"Snapshot is at redshift z = {self.zred_snap:.2f}.")
 
         # Load DM particle IDs and coordinates (uniform across GADGET/SWIFT)
         if comm_rank == 0:
             print("\nLoading particle data...")
-        set_trace()
         coords = snap.read_dataset(1, 'Coordinates')
         
         # Shift coordinates relative to target centre, and wrap them to within
@@ -690,7 +707,11 @@ class MakeMask:
         r : ndarray(float) [N_part, 3]
             The coordinates of the `N_part` particles held on this MPI rank.
             The second array dimension holds the x/y/z components per point.
-
+        serial_only : bool, optional
+            Switch to disable cross-MPI comparison of box extent (default:
+            False). If True, the return values will generally differ between
+            different MPI ranks.
+            
         Returns:
         --------
         box : ndarray(float) [2, 3]
@@ -862,6 +883,13 @@ class MakeMask:
                 linewidth=1, edgecolor='maroon', facecolor='none')
             ax.add_patch(rect)
 
+            # Draw on outline of cuboidal bounding region
+            box_corners = [self.mask_box[:, xx], self.mask_box[:, yy]]
+            ax.plot(box_corners[0][[0, 1, 1, 0, 0]],
+                    box_corners[1][[0, 0, 1, 1, 0]],
+                    color='maroon', linestyle='--', linewidth=0.7
+            )
+
             # Plot particles.
             ax.scatter(
                 plot_coords[:, xx], plot_coords[:, yy],
@@ -892,12 +920,25 @@ class MakeMask:
 
             # Plot target high-resolution sphere (if that is our shape).
             if self.params['shape'] == 'sphere':
-                rect = patches.Circle(
-                    (0, 0), radius=self.params['radius'],
-                    linewidth=1, edgecolor='grey', facecolor='none', ls='--',
-                    zorder=10)
-                ax.add_patch(rect)
-
+                phi = np.arange(0, 2.0001*np.pi, 0.001)
+                radius = self.params['radius']
+                ax.plot(np.cos(phi) * radius, np.sin(phi) * radius,
+                        color='white', linestyle='-', linewidth=2)
+                ax.plot(np.cos(phi) * radius, np.sin(phi) * radius,
+                        color='grey', linestyle='--', linewidth=1)
+                #circle = patches.Circle(
+                #    (0, 0), radius=self.params['radius'],
+                #    linewidth=1, edgecolor='grey', facecolor='none', ls='--',
+                #    zorder=10)
+                #ax.add_patch(circle)
+                ax.text(
+                    0, self.params['radius'],# + bound * 0.015,
+                    f'z = ${self.zred_snap:.2f}$',
+                    color='grey', fontsize=6, va='bottom', ha='center',
+                    bbox={'facecolor': 'white', 'edgecolor': 'grey',
+                          'pad': 0.25, 'boxstyle': 'round',
+                          'linewidth': 0.3}
+                )
         # Save the plot
         plt.subplots_adjust(left=0.05, right=0.99, bottom=0.15, top=0.99)
         plotloc = os.path.join(
