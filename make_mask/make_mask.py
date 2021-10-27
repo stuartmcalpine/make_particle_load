@@ -149,10 +149,10 @@ class MakeMask:
         
         """
         if comm_rank == 0:
-            
-            if not isinstance(params, dict)
-                params = yaml.safe_load(open(param_file))
 
+            if not isinstance(params, dict):
+                params = yaml.safe_load(open(param_file))
+                
             # Set default values for optional parameters
             self.params = {}
             self.params['min_num_per_cell'] = 3
@@ -295,7 +295,7 @@ class MakeMask:
                          f"{self.params['highres_radius_r500']} r_500.",
                          RuntimeWarning)
 
-            r_highres = max(r_r200, r_r500, self.params['r_highres_min'])
+            r_highres = max(r_r200, r_r500)
             if r_highres <= 0:
                 raise ValueError(
                     f"Invalid radius of high-res region ({r_highres})")
@@ -316,15 +316,16 @@ class MakeMask:
 
         r500_str = '' if r500 is None else f'{r500:.4f}'
         m200_str = (
-            '' if getattr(self, 'M200crit', None) is None else
-            f'{self.M200crit:.4f}')
+            '' if getattr(self, 'm200crit', None) is None else
+            f'{self.m200crit:.4f}')
         m500_str = (
-            '' if getattr(self, 'M500crit', None) is None else
-            f'{self.M500crit:.4f}')
+            '' if getattr(self, 'm500crit', None) is None else
+            f'{self.m500crit:.4f}')
         print(
             "Velociraptor search results:\n"
             f"- Run name: {self.params['fname']}\t"
-            f"GroupNumber: {self.params['group_number']}\n"
+            f"GroupNumber: {self.params['group_number']}\t"
+            f"VR index: {vr_index}\n"
             f"- Centre: {centre[0]:.3f} / {centre[1]:.3f} / {centre[2]:.3f} "
             f"- High-res radius: {r_highres:.4f}\n"
             f"- R_200crit: {r200:.4f}\n"
@@ -371,10 +372,10 @@ class MakeMask:
             structType = vr_file['/Structuretype'][:]
             field_halos = np.where(structType == 10)[0]
 
-            sort_rule = self.params['sort_rule']
-            if sort_rule == 'M200crit':
+            sort_rule = self.params['sort_rule'].lower()
+            if sort_rule == 'm200crit':
                 m_halo = vr_file['/Mass_200crit'][field_halos]
-            elif sort_rule == 'M500crit':
+            elif sort_rule == 'm500crit':
                 # If M500 cannot be loaded, an error will be raised
                 m_halo = vr_file['/SO_Mass_500_rhocrit'][field_halos]
             else:
@@ -929,8 +930,8 @@ class MakeMask:
                     )
                     ax.add_patch(rect)
 
-            ax.set_xlabel(f"{axis_labels[xx]} [$h^{{-1}}$ Mpc]")
-            ax.set_ylabel(f"{axis_labels[yy]} [$h^{{-1}}$ Mpc]")
+            ax.set_xlabel(f"${axis_labels[xx]}$ [$h^{{-1}}$ Mpc]")
+            ax.set_ylabel(f"${axis_labels[yy]}$ [$h^{{-1}}$ Mpc]")
 
             # Plot target high-resolution sphere (if that is our shape).
             if self.params['shape'] == 'sphere':
@@ -940,19 +941,15 @@ class MakeMask:
                         color='white', linestyle='-', linewidth=2)
                 ax.plot(np.cos(phi) * radius, np.sin(phi) * radius,
                         color='grey', linestyle='--', linewidth=1)
-                #circle = patches.Circle(
-                #    (0, 0), radius=self.params['radius'],
-                #    linewidth=1, edgecolor='grey', facecolor='none', ls='--',
-                #    zorder=10)
-                #ax.add_patch(circle)
-                ax.text(
-                    0, self.params['radius'],# + bound * 0.015,
-                    f'z = ${self.zred_snap:.2f}$',
-                    color='grey', fontsize=6, va='bottom', ha='center',
-                    bbox={'facecolor': 'white', 'edgecolor': 'grey',
-                          'pad': 0.25, 'boxstyle': 'round',
-                          'linewidth': 0.3}
-                )
+                if ii == 0:
+                    ax.text(
+                        0, self.params['radius'],# + bound * 0.015,
+                        f'z = ${self.zred_snap:.2f}$',
+                        color='grey', fontsize=6, va='bottom', ha='center',
+                        bbox={'facecolor': 'white', 'edgecolor': 'grey',
+                            'pad': 0.25, 'boxstyle': 'round',
+                            'linewidth': 0.3}
+                    )
         # Save the plot
         plt.subplots_adjust(left=0.05, right=0.99, bottom=0.15, top=0.99)
         plotloc = os.path.join(
