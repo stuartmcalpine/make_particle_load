@@ -36,6 +36,7 @@ def make_masks_from_list() -> None:
 
     # Parse the parameter (template), and check the expected placeholders
     params = load(open(args.template_file))
+    params['select_from_vr'] = True
     if 'GROUPNUMBER' not in params['fname']:
         raise ValueError(
             "'fname' parameter in the template file must contain the "
