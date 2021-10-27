@@ -1,0 +1,38 @@
+# This file lists all the available parameter options *for batch processing*.
+# 
+# It should not be used as an input parameter file in this form, but modified
+# appropriately. All values (e.g. the coordinates) are expected to be in the
+# same units as used in the snapshot.
+#
+# NOTE: If you are using an automatic group selection, make sure you are using
+# a Velociraptor output catalogue (.properties). SUBFIND output catalogues are
+# deprecated as of 17-09-2020.
+#
+# If you are using automatic halo selection based on the Velociraptor
+# catalogue, a sorting key must be selected and the GroupNumber is the index
+# of the group in the list sorted by decreasing mass (from largest to
+# smallest).
+# 
+# Parameters marked as [Optional] need not be specified; the script will assume
+# the given defaults if they are not provided.
+
+# OPTIONS FOR MASK SETUP #
+snap_file:         path/to/parent/box  # The location of the snapshot we are creating the mask from.
+bits:              21                  # The number of bits that were used in the particle IDs for the Peano-Hilbert indexing (EAGLE runs use 14).
+fname:             my_run_GROUPNUMBER   # The save name for the mask file. It *must* contain the sequence GROUPNUMBER, which is replaced with the individual group numbers for the different haloes.
+output_dir:        path/to/output/mask  # Directory to which the mask image and hdf5 file are saved.
+data_type:         swift               # Type of snapshot to generate the mask from. Can be 'gadget' or 'swift' (default)
+divide_ids_by_two: False               # Switch to divide input particle IDs by 2. This is required if the IDs were multiplied by 2 during gas/DM splitting (as in EAGLE), but generally not for DM-only parent runs.
+min_num_per_cell:  3                   # [Optional] Minimum number of particles per cell (default 3). Cells with fewer than `min_num_per_cell` particles are ignored
+mpc_cell_size:     3.                  # [Optional] Cell size (default 3.)
+
+# AMOEBA TOPOLOGY #
+topology_fill_holes:       True        # [Optional] Enable algorithm for filling holes (default: True).
+topology_dilation_n_iter:   1          # [Optional] Number of iterations of the algorithm for extrusion. Set to 0 (default) to disable.
+topology_closing_n_iter:    1          # [Optional] Number of iterations of the algorithm for rounding edges. Set value to 0 (default) to disable.
+
+# AUTOMATIC GROUP SELECTION #
+vr_file:             path/to/stf/properties  # Path to the Velociraptor group catalogue to select the target halo from.
+sort_type:           M200crit          # Property by which to sort haloes for selecting the target. Options are 'm200crit' (default), 'm500crit', or 'None'. In the latter case, the halo order as in the catalogue is used. If the group list file specifies a different sort type, this value is ignored.
+highres_radius_r200: 1.                # [Optional] Minimum target high-resolution radius in units of the halo's r200c (may be 0 [default] for selection only on r500c).
+highres_radius_r500: 5.                # [Optional] Minimum target high-resolution radius in units of the halo's r500c (may be 0 [default] for selection only on r200c).
