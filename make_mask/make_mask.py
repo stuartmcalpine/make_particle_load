@@ -1,21 +1,18 @@
-"""
-Script to generate a mask for a single object.
-"""
+"""Script to generate a mask for a single object."""
 
 import sys
 import os
 import yaml
 import h5py
 import numpy as np
-from typing import List, Tuple
+from typing import Tuple
 from warnings import warn
-from scipy.spatial import distance
 from scipy import ndimage
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 from mpi4py import MPI
 
-from pdb import set_trace
 
 # ---------------------------------------
 # Load utilities from `modules` directory
@@ -26,7 +23,7 @@ sys.path.append(
     os.path.join(
         os.path.dirname(os.path.abspath(__file__)),
         os.pardir,
-        "modules"
+        "swift_scripts"
     )
 )
 
@@ -43,19 +40,18 @@ except ImportError:
     raise Exception(
         "Make sure you have added the `read_swift.py` module directory to "
         "your $PYTHONPATH.")
-#try:
-#    from read_eagle import EagleSnapshot
-#except ImportError:
-#    raise Exception(
-#        "Make sure you have added the `read_eagle.py` module directory to "
-#        "your $PYTHONPATH.")
-
 
 # Set up MPI support. We do this at a global level, so that all functions
 # can access the communicator easily
 comm = MPI.COMM_WORLD
 comm_rank = comm.rank
 comm_size = comm.size
+
+# Set up Matplotlib
+mpl.rcParams['text.usetex'] = True
+mpl.rcParams['font.family'] = 'serif'
+mpl.rcParams['font.serif'] = 'Palatino'
+
 
 class MakeMask:
     """
@@ -64,13 +60,34 @@ class MakeMask:
     Upon instantiation, the parameter file is read, the mask is created
     and (by default) immediately saved to an HDF5 file.
 
+    The mask data is stored in three internal attributes:
+    - self.cell_coords : ndarray(float) [N_sel, 3]
+        An array containing the relative 3D coordinates of the centres of
+        N_sel cubic cells. The volume within these cells is to be
+        re-simulated at high resolution. The origin of this coordinate system
+        is in general not the same as for the parent simulation
+        (see `self.mask_centre`).
+    - self.cell_size : float
+        The side length each mask cell.
+    - self.mask_centre : ndarray(float) [3]
+        The origin of the mask coordinate system in the parent simulation
+        frame. In other words, these coordinates must be added to
+        `self.cell_coords` to obtain the cell positions in the parent
+        simulation. It is chosen as the geometric centre of the mask cells,
+        i.e. `self.cell_coords` extends equally far in the positive and
+        negative direction along each axis.
+
     The class also contains a `plot` method for generating an overview
     plot of the generated mask.
-    
+
     Parameters
     ----------
-    param_file : string
-        The name of the YAML parameter file defining the mask.
+    param_file : string, optional
+        The name of the YAML parameter file defining the mask. If None
+        (default), a parsed parameter structure must be provided as
+        `params` instead.
+    params : dict, optional
+        The input parameters
     save : bool
         Switch to directly save the generated mask as an HDF5 file. This is
         True by default.
@@ -78,28 +95,28 @@ class MakeMask:
     Returns
     -------
     None
-
     """
-    def __init__(self, param_file, save=True, plot=True):
+
+    def __init__(self, param_file=None, params=None, save=True, plot=True):
 
         # Parse the parameter file, check for consistency, and determine
         # the centre and radius of high-res sphere around a VR halo if desired.
-        self.read_param_file(param_file)
+        self.read_param_file(param_file, params)
 
         # Create the actual mask...
         self.make_mask()
 
         # If desired, plot the mask and the amoeba. The actual plot is only
         # made by rank 0, but we also need the particle data from the other
-        # ranks. 
+        # ranks.
         if plot:
             self.plot()
 
         # Save the mask to hdf5
-        #if save and comm_rank == 0:
-        #    self.save() #H, edges, bin_width, m, bounding_length, geo_centre)
+        if save and comm_rank == 0:
+            self.save()
 
-    def read_param_file(self, param_file):
+    def read_param_file(self, param_file, params):
         """
         Read parameters from a specified YAML file.
 
@@ -107,16 +124,22 @@ class MakeMask:
         description of parameters. The values are stored in the internal
         `self.params` dict.
 
+        If `params` is a dict, this is assumed to represent the parameter
+        structure instead, and `param_file` is ignored. Parameters are still
+        checked and processed in the same way. Otherwise, `params` is ignored.
+
         If the parameter file specifies the target centre in terms of a
         particular Velociraptor halo, the centre and radius of the high-res
         region are determined internally.
 
         In the MPI version, the file is only read on one rank and the dict
         then broadcast to all other ranks.
-        
+
         """
         if comm_rank == 0:
-            params = yaml.safe_load(open(param_file))
+
+            if not isinstance(params, dict):
+                params = yaml.safe_load(open(param_file))
 
             # Set default values for optional parameters
             self.params = {}
@@ -125,7 +148,7 @@ class MakeMask:
             self.params['topology_fill_holes'] = True
             self.params['topology_dilation_niter'] = 0
             self.params['topology_closing_niter'] = 0
-            
+
             # Define a list of parameters that must be provided. An error
             # is raised if they are not found in the YAML file.
             required_params = [
@@ -138,11 +161,11 @@ class MakeMask:
                 'output_dir'
             ]
             for att in required_params:
-                if not att in params:
+                if att not in params:
                     raise KeyError(
                         f"Need to provide a value for {att} in the parameter "
                         f"file '{param_file}'!")
-            
+
             # Run checks for automatic group selection
             if params['select_from_vr']:
                 params['shape'] = 'sphere'
@@ -155,7 +178,7 @@ class MakeMask:
                 for req in requirements:
                     if not req[0] in params:
                         raise KeyError(f"Need to provide {req[1]}!")
-                     
+
                 # Make sure that we have a positive high-res region size
                 if 'highres_radius_r200' not in params:
                     params['highres_radius_r200'] = 0
@@ -168,9 +191,9 @@ class MakeMask:
                         "highres_radius_r500' must be positive!")
 
                 # Set defaults for optional parameters
-                self.params['r_highres_min'] = 0
-                self.params['r_highres_buffer'] = 0
-                
+                self.params['highres_radius_min'] = 0
+                self.params['highres_radius_buffer'] = 0
+
             else:
                 # Consistency checks for manual target region selection
                 if 'centre' not in params:
@@ -180,11 +203,12 @@ class MakeMask:
                 if 'shape' not in params:
                     raise KeyError(
                         "Need to specify the shape of the target region!")
-                if 'shape' in ['cuboid', 'slab'] and 'dim' not in params:
+                if (params['shape'] in ['cuboid', 'slab']
+                    and 'dim' not in params):
                     raise KeyError(
-                        f"Need to provide dimensions of '{params[shape]}' "
+                        f"Need to provide dimensions of {params['shape']} "
                         f"high-resolution region.")
-                if 'shape' == 'sphere' and 'radius' not in params:
+                if params['shape'] == 'sphere' and 'radius' not in params:
                     raise KeyError(
                         "Need to provide the radius of target high-resolution "
                         "sphere!")
@@ -206,7 +230,7 @@ class MakeMask:
             # Create the output directory if it does not exist yet
             if not os.path.isdir(self.params['output_dir']):
                 os.makedirs(self.params['output_dir'])
-                
+
         else:
             # If this is not the root rank, don't read the file.
             self.params = None
@@ -231,7 +255,7 @@ class MakeMask:
         radius : float
             The target radius of the high-res region, including any requested
             padding.
-            
+
         """
         # Make sure that we are on the root rank if over MPI
         if comm_rank != 0:
@@ -260,14 +284,18 @@ class MakeMask:
                          f"{self.params['highres_radius_r500']} r_500.",
                          RuntimeWarning)
 
-            r_highres = max(r_r200, r_r500, self.params['r_highres_min'])
+            r_highres = max(r_r200, r_r500)
             if r_highres <= 0:
                 raise ValueError(
                     f"Invalid radius of high-res region ({r_highres})")
 
             # If enabled, add a fixed "padding" radius to the high-res sphere
-            if self.params["r_highres_padding"] > 0:
-                r_highres += self.params['r_highres_padding']
+            if self.params['highres_radius_padding'] > 0:
+                r_highres += self.params['highres_radius_padding']
+
+            # If enabled, expand radius to requested minimum.
+            if self.params['highres_radius_min'] > 0:
+                r_highres = max(r_highres, self.params['highres_radius_min'])
 
             # Load halo centre
             names = ['X', 'Y', 'Z']
@@ -277,15 +305,16 @@ class MakeMask:
 
         r500_str = '' if r500 is None else f'{r500:.4f}'
         m200_str = (
-            '' if getattr(self, 'M200crit', None) is None else
-            f'{self.M200crit:.4f}')
+            '' if getattr(self, 'm200crit', None) is None else
+            f'{self.m200crit:.4f}')
         m500_str = (
-            '' if getattr(self, 'M500crit', None) is None else
-            f'{self.M500crit:.4f}')
+            '' if getattr(self, 'm500crit', None) is None else
+            f'{self.m500crit:.4f}')
         print(
             "Velociraptor search results:\n"
             f"- Run name: {self.params['fname']}\t"
-            f"GroupNumber: {self.params['group_number']}\n"
+            f"GroupNumber: {self.params['group_number']}\t"
+            f"VR index: {vr_index}\n"
             f"- Centre: {centre[0]:.3f} / {centre[1]:.3f} / {centre[2]:.3f} "
             f"- High-res radius: {r_highres:.4f}\n"
             f"- R_200crit: {r200:.4f}\n"
@@ -295,7 +324,6 @@ class MakeMask:
             )
 
         return centre, r_highres
-
 
     def find_halo_index(self) -> int:
         """
@@ -308,7 +336,7 @@ class MakeMask:
 
         If the parameter file instructs to sort by M500c, but this is not
         recorded in the Velociraptor catalogue, an error is raised.
-        
+
         Parameters
         ----------
         None
@@ -317,7 +345,7 @@ class MakeMask:
         -------
         halo_index : int
             The catalogue index of the target halo.
-        
+
         """
         if comm_rank != 0:
             raise ValueError("find_halo_index() called on rank {comm_rank}!")
@@ -332,15 +360,15 @@ class MakeMask:
             structType = vr_file['/Structuretype'][:]
             field_halos = np.where(structType == 10)[0]
 
-            sort_rule = self.params['sort_rule']
-            if sort_rule == 'M200crit':
+            sort_rule = self.params['sort_rule'].lower()
+            if sort_rule == 'm200crit':
                 m_halo = vr_file['/Mass_200crit'][field_halos]
-            elif sort_rule == 'M500crit':
+            elif sort_rule == 'm500crit':
                 # If M500 cannot be loaded, an error will be raised
                 m_halo = vr_file['/SO_Mass_500_rhocrit'][field_halos]
             else:
                 raise ValueError("Unknown sorting rule '{sort_rule}'!")
-                
+
         # Sort groups by specified mass, in descending order
         sort_key = np.argsort(-m_halo)
         halo_index = sort_key[self.params['group_number']]
@@ -365,7 +393,7 @@ class MakeMask:
         padding_factor : float
             The mask is set up to extend beyond the region covered by the
             target particles by this factor. Default is 2.0, must be >= 1.0.
-        
+
         """
         if padding_factor < 1:
             raise ValueError(
@@ -373,7 +401,7 @@ class MakeMask:
 
         # Find cuboidal frame enclosing the target high-resolution region
         self.region = self.find_enclosing_frame()
-        
+
         # Load IDs of particles within target high-res region from snapshot.
         # Note that only particles assigned to current MPI rank are loaded,
         # which may be none.
@@ -384,7 +412,7 @@ class MakeMask:
         # as the box size, centred (and wrapped) on the high-res target region.
         ic_coords = self.compute_ic_positions(ids)
 
-        # Find the corners of a box enclosing all particles in the ICs. 
+        # Find the corners of a box enclosing all particles in the ICs.
         box, widths = self.compute_bounding_box(ic_coords)
         if comm_rank == 0:
             print(
@@ -400,14 +428,14 @@ class MakeMask:
 
         # Also need to keep track of the mask centre in the original frame.
         self.mask_centre = self.params['centre'] + geo_centre
-        
+
         # Build the basic mask. This is a cubic boolean array with an
         # adaptively computed cell size and extent that includes at least
         # twice the entire bounding box. It is True for any cells that contain
         # at least the specified threshold number of particles.
         #
         # `edges` holds the spatial coordinate of the lower cell edges. By
-        # construction, this is the same along all three dimensions. 
+        # construction, this is the same along all three dimensions.
         #
         # We make the mask larger than the actual particle extent, as a safety
         # measure (**TODO**: check whether this is actually needed)
@@ -429,15 +457,15 @@ class MakeMask:
         # Finally, we need to find the centre of all selected mask cells, and
         # the box enclosing all those cells
         ind_sel = np.where(self.mask)   # Note: 3-tuple of ndarrays!
-        self.sel_coords = np.vstack(
+        self.cell_coords = np.vstack(
             (edges[ind_sel[0]], edges[ind_sel[1]], edges[ind_sel[2]])
             ).T
-        self.sel_coords += self.cell_size
-   
+        self.cell_coords += self.cell_size * 0.5
+
         # Find the box that (fully) encloses all selected cells, and the
         # side length of its surrounding cube
         self.mask_box, self.mask_widths = self.compute_bounding_box(
-            self.sel_coords, serial_only=True)
+            self.cell_coords, serial_only=True)
         self.mask_box[0, :] -= self.cell_size * 0.5
         self.mask_box[1, :] += self.cell_size * 0.5
         self.mask_widths += self.cell_size
@@ -454,21 +482,21 @@ class MakeMask:
         n_sel = len(ind_sel)
         cell_fraction = n_sel * self.cell_size**3 / box_volume
         cell_fraction_cube = n_sel * self.cell_size**3 / self.mask_extent**3
-        print(f'There are {len(ind_sel):d} selected mask cells.')        
+        print(f'There are {len(ind_sel):d} selected mask cells.')
         print(f'They fill {cell_fraction * 100:.3f} per cent of the bounding '
               f'box ({cell_fraction_cube * 100:.3f} per cent of bounding '
               f'cube).')
 
         # Final sanity check: make sure that all particles are within cubic
         # bounding box
-        if (not np.all(box[0, :] >= -self.mask_extent / 2) or
-            not np.all(box[1, :] <= self.mask_extent / 2)):
+        if (not np.all(box[0, :] - geo_centre >= -self.mask_extent / 2) or
+            not np.all(box[1, :] - geo_centre <= self.mask_extent / 2)):
             raise ValueError(
                 f"Cubic bounding box around final mask does not enclose all "
                 f"input particles!\n"
                 f"({box}\n   vs. {self.mask_extent:.4f})"
             )
-        
+
     def find_enclosing_frame(self):
         """
         Compute the bounding box enclosing the target high-res region.
@@ -496,14 +524,16 @@ class MakeMask:
         elif self.params['shape'] in ['cuboid', 'slab']:
             frame[0, :] = centre - self.params['dim'] / 2.
             frame[1, :] = centre + self.params['dim'] / 2.
-   
+
         if comm_rank == 0:
-            print(f"Boundary frame in selection snapshot:\n"
-                  f"{frame[0, 0]:.2f} / {frame[0, 1]:.2f} / {frame[0, 2]:.2f} "
-                  f"-- {frame[1, 0]:.2f} / {frame[1, 1]:.2f} / {frame[1, 2]:.2f}")
-            
+            print(
+                f"Boundary frame in selection snapshot:\n"
+                f"{frame[0, 0]:.2f} / {frame[0, 1]:.2f} / {frame[0, 2]:.2f}"
+                " -- "
+                f"{frame[1, 0]:.2f} / {frame[1, 1]:.2f} / {frame[1, 2]:.2f}"
+            )
         return frame
-            
+
     def load_particles(self):
         """
         Load relevant data from base snapshot.
@@ -515,23 +545,20 @@ class MakeMask:
         -------
         ids : ndarray(int)
             The Peano-Hilbert keys of the particles.
-        """
 
+        """
         # To make life simpler, extractsome frequently used parameters
         cen = self.params['centre']
         shape = self.params['shape']
 
         # First step: set up particle reader and load metadata.
         # This is different for SWIFT and GADGET simulations, but subsequent
-        # loading 
+        # loading
         if self.params['data_type'].lower() == 'gadget':
-            snap = EagleSnapshot(self.params['snap_file'])
-            self.params['bs'] = float(snap.HEADER['BoxSize'])
-            self.params['h_factor'] = 1.0
-            self.params['length_unit'] = 'Mph/h'
-            self.params['redshift'] = snap.HEADER['Redshift']
-            snap.select_region(*self.region.T.flatten())
-            snap.split_selection(comm_rank, comm_size)
+            raise ValueError(
+                "Processing of Gadget parent simulations is no longer "
+                "supported."
+            )
 
         elif self.params['data_type'].lower() == 'swift':
             snap = read_swift(self.params['snap_file'], comm=comm)
@@ -543,14 +570,14 @@ class MakeMask:
             snap.split_selection()
 
         if comm_rank == 0:
-            zred = self.params['redshift']
-            print(f"Snapshot is at redshift z = {zred:.2f}.")
+            self.zred_snap = self.params['redshift']
+            print(f"Snapshot is at redshift z = {self.zred_snap:.2f}.")
 
         # Load DM particle IDs and coordinates (uniform across GADGET/SWIFT)
         if comm_rank == 0:
             print("\nLoading particle data...")
         coords = snap.read_dataset(1, 'Coordinates')
-        
+
         # Shift coordinates relative to target centre, and wrap them to within
         # the periodic box (done by first shifting them up by half a box,
         # taking the modulus with the box size in each dimension, and then
@@ -584,7 +611,7 @@ class MakeMask:
             mask = np.where(
                 np.max(np.abs(coords / (self.params['dim'] / 2)), axis=1)
                 <= 1)[0]
-            
+
         # Secondly, we need the IDs of particles lying in the mask region
         ids = snap.read_dataset(1, 'ParticleIDs')[mask]
 
@@ -601,13 +628,11 @@ class MakeMask:
         # h factor back in...
         if self.params['data_type'].lower() == 'swift':
             self.convert_lengths_to_inverse_h()
-             
+
         return ids
-    
+
     def convert_lengths_to_inverse_h(self):
-        """
-        Convert length parameters into 'h^-1' units for consistency with ICs.
-        """
+        """Convert length parameters into 'h^-1' units for IC-GEN."""
         h = self.params['h_factor']
         keys = self.params.keys()
         if 'radius' in keys:
@@ -643,7 +668,7 @@ class MakeMask:
             origin.
         """
         print(f"[Rank {comm_rank}] Computing initial positions of dark matter "
-               "particles...")
+              "particles...")
 
         # First, convert the (scalar) PH key for each particle back to a triple
         # of indices giving its (quantised, normalized) offset from the origin
@@ -677,14 +702,18 @@ class MakeMask:
         """
         Find the corners of a box enclosing a set of points across MPI ranks.
 
-        Parameters:
-        -----------
+        Parameters
+        ----------
         r : ndarray(float) [N_part, 3]
             The coordinates of the `N_part` particles held on this MPI rank.
             The second array dimension holds the x/y/z components per point.
+        serial_only : bool, optional
+            Switch to disable cross-MPI comparison of box extent (default:
+            False). If True, the return values will generally differ between
+            different MPI ranks.
 
-        Returns:
-        --------
+        Returns
+        -------
         box : ndarray(float) [2, 3]
             The coordinates of the lower and upper vertices of the bounding
             box. These are stored in index 0 and 1 along the first dimension,
@@ -693,7 +722,7 @@ class MakeMask:
         widths : ndarray(float) [3]
             The width of the box along each dimension.
 
-        """ 
+        """
         box = np.zeros((2, 3))
 
         # Find vertices of local particles (on this MPI rank). If there are
@@ -721,7 +750,7 @@ class MakeMask:
         specified threshold number of particles.
 
         The mask is based on particles on all MPI ranks.
-        
+
         Parameters
         ----------
         r : ndarray(float) [N_p, 3]
@@ -750,7 +779,8 @@ class MakeMask:
         num_bins = int(np.ceil(width / self.params['mask_cell_size']))
 
         # Compute number of particles in each cell, across MPI ranks
-        n_p, edges = np.histogramdd(r, bins=num_bins, range=[(-width,width)]*3)
+        n_p, edges = np.histogramdd(
+            r, bins=num_bins, range=[(-width, width)] * 3)
         n_p = comm.allreduce(n_p, op=MPI.SUM)
 
         # Convert particle counts to True/False mask
@@ -775,7 +805,7 @@ class MakeMask:
 
         Returns
         -------
-        None  
+        None
 
         """
         # Process each layer (slice) of the mask in turn
@@ -797,7 +827,7 @@ class MakeMask:
                 self.mask[index] = (
                     ndimage.binary_fill_holes(self.mask[index]).astype(bool)
                 )
-            # Step 2: regularize the morphology 
+            # Step 2: regularize the morphology
             if self.params['topology_dilation_niter'] > 0:
                 self.mask[index] = (
                     ndimage.binary_dilation(
@@ -833,17 +863,18 @@ class MakeMask:
         plot_coords = comm.gather(plot_coords)
 
         # Only need rank 0 from here on, combine all particles there.
-        if comm_rank != 0: return
+        if comm_rank != 0:
+            return
         plot_coords = np.vstack(plot_coords)
 
         # Extract frequently needed attributes for easier structure
         bound = self.mask_extent
         cell_size = self.cell_size
 
-        fig, axarr = plt.subplots(1, 3, figsize=(10, 4))
+        fig, axarr = plt.subplots(1, 3, figsize=(13, 4))
 
         # Plot each projection (xy, xz, yz) in a separate panel. `xx` and `yy`
-        # denote the coordinate plotted on the x and y axis, respectively. 
+        # denote the coordinate plotted on the x and y axis, respectively.
         for ii, (xx, yy) in enumerate(zip([0, 0, 1], [1, 2, 2])):
             ax = axarr[ii]
             ax.set_aspect('equal')
@@ -851,46 +882,64 @@ class MakeMask:
             # Draw the outline of the cubic bounding region
             rect = patches.Rectangle(
                 [-bound / 2., -bound/2.], bound, bound,
-                linewidth=1, edgecolor='r', facecolor='none')
+                linewidth=1, edgecolor='maroon', facecolor='none')
             ax.add_patch(rect)
+
+            # Draw on outline of cuboidal bounding region
+            box_corners = [self.mask_box[:, xx], self.mask_box[:, yy]]
+            ax.plot(
+                box_corners[0][[0, 1, 1, 0, 0]],
+                box_corners[1][[0, 0, 1, 1, 0]],
+                color='maroon', linestyle='--', linewidth=0.7
+            )
 
             # Plot particles.
             ax.scatter(
                 plot_coords[:, xx], plot_coords[:, yy],
-                s=0.5, c='blue', zorder=9, alpha=0.5)
+                s=0.5, c='blue', zorder=-100, alpha=0.3)
 
             ax.set_xlim(-bound/2. * 1.05, bound/2. * 1.05)
             ax.set_ylim(-bound/2. * 1.05, bound/2. * 1.05)
 
             # Plot (the centres of) selected mask cells.
             ax.scatter(
-                self.sel_coords[:, xx], self.sel_coords[:, yy],
-                marker='x', color='red', s=3, alpha=0.4)
+                self.cell_coords[:, xx], self.cell_coords[:, yy],
+                marker='x', color='red', s=5, alpha=0.2)
 
             # Plot cell outlines if there are not too many of them.
-            if self.sel_coords.shape[0] < 10000:
+            if self.cell_coords.shape[0] < 10000:
                 for e_x, e_y in zip(
-                    self.sel_coords[:, xx], self.sel_coords[:, yy]):
+                    self.cell_coords[:, xx], self.cell_coords[:, yy]):
                     rect = patches.Rectangle(
-                        (e_x - cell_size, e_y - cell_size),
+                        (e_x - cell_size/2, e_y - cell_size/2),
                         cell_size, cell_size,
-                        linewidth=0.5, edgecolor='r', facecolor='none'
+                        linewidth=0.5, edgecolor='r', facecolor='none',
+                        alpha=0.2
                     )
                     ax.add_patch(rect)
 
-            ax.set_xlabel(f"{axis_labels[xx]} [Mpc h$^{{-1}}$]")
-            ax.set_ylabel(f"{axis_labels[yy]} [Mpc h$^{{-1}}$]")
+            ax.set_xlabel(f"${axis_labels[xx]}$ [$h^{{-1}}$ Mpc]")
+            ax.set_ylabel(f"${axis_labels[yy]}$ [$h^{{-1}}$ Mpc]")
 
             # Plot target high-resolution sphere (if that is our shape).
             if self.params['shape'] == 'sphere':
-                rect = patches.Circle(
-                    (0, 0), radius=self.params['radius'],
-                    linewidth=1, edgecolor='k', facecolor='none', ls='--',
-                    zorder=10)
-                ax.add_patch(rect)
-
+                phi = np.arange(0, 2.0001*np.pi, 0.001)
+                radius = self.params['radius']
+                ax.plot(np.cos(phi) * radius, np.sin(phi) * radius,
+                        color='white', linestyle='-', linewidth=2)
+                ax.plot(np.cos(phi) * radius, np.sin(phi) * radius,
+                        color='grey', linestyle='--', linewidth=1)
+                if ii == 0:
+                    ax.text(
+                        0, self.params['radius'],
+                        f'z = ${self.zred_snap:.2f}$',
+                        color='grey', fontsize=6, va='bottom', ha='center',
+                        bbox={'facecolor': 'white', 'edgecolor': 'grey',
+                              'pad': 0.25, 'boxstyle': 'round',
+                              'linewidth': 0.3}
+                    )
         # Save the plot
-        plt.tight_layout(pad=0.1)
+        plt.subplots_adjust(left=0.05, right=0.99, bottom=0.15, top=0.99)
         plotloc = os.path.join(
             self.params['output_dir'], self.params['fname']) + ".png"
         plt.savefig(plotloc, dpi=200)
@@ -905,13 +954,14 @@ class MakeMask:
 
         Only rank 0 should do this, but we'll check just to be sure...
 
-        Returns:
-        --------
+        Returns
+        -------
         None
 
         """
-        if comm_rank != 0: return
-        
+        if comm_rank != 0:
+            return
+
         outloc = os.path.join(
             self.params['output_dir'], self.params['fname']) + ".hdf5"
 
@@ -924,13 +974,13 @@ class MakeMask:
 
             # Main output is the centres of selected mask cells
             ds = f.create_dataset(
-                'Coordinates', data=np.array(self.sel_coords, dtype='f8')
+                'Coordinates', data=np.array(self.cell_coords, dtype='f8')
             )
             ds.attrs.create('Description',
                             "Coordinates of the centres of selected mask "
                             "cells. The (uniform) cell width is stored as the "
                             "attribute `grid_cell_width`.")
-            
+
             # Store attributes directly related to the mask as HDF5 attributes.
             ds.attrs.create('bounding_length', self.mask_extent)
             ds.attrs.create('geo_centre', self.mask_centre)
@@ -943,7 +993,7 @@ class MakeMask:
 
         print(f"Saved mask data to file `{outloc}`.")
 
-        
+
 def periodic_wrapping(r, boxsize, return_copy=False):
     """
     Apply periodic wrapping to an input set of coordinates.
@@ -957,8 +1007,8 @@ def periodic_wrapping(r, boxsize, return_copy=False):
         those used for `r`.
     return_copy : bool, optional
         Switch to return a (modified) copy of the input array, rather than
-        modifying the input in place (which is the default).    
-        
+        modifying the input in place (which is the default).
+
     Returns
     -------
     r_wrapped : ndarray(float) [N, 3]
@@ -974,7 +1024,8 @@ def periodic_wrapping(r, boxsize, return_copy=False):
     r += 0.5 * boxsize
     r %= boxsize
     r -= 0.5 * boxsize
-        
+
+
 # Allow using the file as stand-alone script
 if __name__ == '__main__':
     x = MakeMask(sys.argv[1])
