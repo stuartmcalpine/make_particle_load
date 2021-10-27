@@ -74,7 +74,7 @@ class MakeMask:
     and (by default) immediately saved to an HDF5 file.
 
     The mask data is stored in three internal attributes:
-    - self.sel_coords : ndarray(float) [N_sel, 3]
+    - self.cell_coords : ndarray(float) [N_sel, 3]
         An array containing the relative 3D coordinates of the centres of N_sel
         cubic cells. The volume within these cells is to be re-simulated at
         high resolution. The origin of this coordinate system is in general
@@ -84,9 +84,9 @@ class MakeMask:
     - self.mask_centre : ndarray(float) [3]
         The origin of the mask coordinate system in the parent simulation
         frame. In other words, these coordinates must be added to
-        `self.sel_coords` to obtain the cell positions in the parent
+        `self.cell_coords` to obtain the cell positions in the parent
         simulation. It is chosen as the geometric centre of the mask cells,
-        i.e. `self.sel_coords` extends equally far in the positive and negative
+        i.e. `self.cell_coords` extends equally far in the positive and negative
         direction along each axis.
     
     The class also contains a `plot` method for generating an overview
@@ -94,8 +94,12 @@ class MakeMask:
     
     Parameters
     ----------
-    param_file : string
-        The name of the YAML parameter file defining the mask.
+    param_file : string, optional
+        The name of the YAML parameter file defining the mask. If None
+        (default), a parsed parameter structure must be provided as
+        `params` instead.
+    params : dict, optional
+        The input parameters
     save : bool
         Switch to directly save the generated mask as an HDF5 file. This is
         True by default.
@@ -105,11 +109,11 @@ class MakeMask:
     None
 
     """
-    def __init__(self, param_file, save=True, plot=True):
+    def __init__(self, param_file=None, params=None, save=True, plot=True):
 
         # Parse the parameter file, check for consistency, and determine
         # the centre and radius of high-res sphere around a VR halo if desired.
-        self.read_param_file(param_file)
+        self.read_param_file(param_file, params)
 
         # Create the actual mask...
         self.make_mask()
@@ -124,13 +128,17 @@ class MakeMask:
         #if save and comm_rank == 0:
         #    self.save() #H, edges, bin_width, m, bounding_length, geo_centre)
 
-    def read_param_file(self, param_file):
+    def read_param_file(self, param_file, params):
         """
         Read parameters from a specified YAML file.
 
         See template file `param_files/template.yml` for a full listing and
         description of parameters. The values are stored in the internal
         `self.params` dict.
+
+        If `params` is a dict, this is assumed to represent the parameter
+        structure instead, and `param_file` is ignored. Parameters are still
+        checked and processed in the same way. Otherwise, `params` is ignored.
 
         If the parameter file specifies the target centre in terms of a
         particular Velociraptor halo, the centre and radius of the high-res
@@ -141,7 +149,9 @@ class MakeMask:
         
         """
         if comm_rank == 0:
-            params = yaml.safe_load(open(param_file))
+            
+            if not isinstance(params, dict)
+                params = yaml.safe_load(open(param_file))
 
             # Set default values for optional parameters
             self.params = {}
@@ -454,15 +464,15 @@ class MakeMask:
         # Finally, we need to find the centre of all selected mask cells, and
         # the box enclosing all those cells
         ind_sel = np.where(self.mask)   # Note: 3-tuple of ndarrays!
-        self.sel_coords = np.vstack(
+        self.cell_coords = np.vstack(
             (edges[ind_sel[0]], edges[ind_sel[1]], edges[ind_sel[2]])
             ).T
-        self.sel_coords += self.cell_size * 0.5
+        self.cell_coords += self.cell_size * 0.5
    
         # Find the box that (fully) encloses all selected cells, and the
         # side length of its surrounding cube
         self.mask_box, self.mask_widths = self.compute_bounding_box(
-            self.sel_coords, serial_only=True)
+            self.cell_coords, serial_only=True)
         self.mask_box[0, :] -= self.cell_size * 0.5
         self.mask_box[1, :] += self.cell_size * 0.5
         self.mask_widths += self.cell_size
@@ -900,13 +910,13 @@ class MakeMask:
 
             # Plot (the centres of) selected mask cells.
             ax.scatter(
-                self.sel_coords[:, xx], self.sel_coords[:, yy],
+                self.cell_coords[:, xx], self.cell_coords[:, yy],
                 marker='x', color='red', s=5, alpha=0.2)
 
             # Plot cell outlines if there are not too many of them.
-            if self.sel_coords.shape[0] < 10000:
+            if self.cell_coords.shape[0] < 10000:
                 for e_x, e_y in zip(
-                    self.sel_coords[:, xx], self.sel_coords[:, yy]):
+                    self.cell_coords[:, xx], self.cell_coords[:, yy]):
                     rect = patches.Rectangle(
                         (e_x - cell_size/2, e_y - cell_size/2),
                         cell_size, cell_size,
@@ -974,7 +984,7 @@ class MakeMask:
 
             # Main output is the centres of selected mask cells
             ds = f.create_dataset(
-                'Coordinates', data=np.array(self.sel_coords, dtype='f8')
+                'Coordinates', data=np.array(self.cell_coords, dtype='f8')
             )
             ds.attrs.create('Description',
                             "Coordinates of the centres of selected mask "
@@ -1025,6 +1035,7 @@ def periodic_wrapping(r, boxsize, return_copy=False):
     r %= boxsize
     r -= 0.5 * boxsize
         
+
 # Allow using the file as stand-alone script
 if __name__ == '__main__':
     x = MakeMask(sys.argv[1])
