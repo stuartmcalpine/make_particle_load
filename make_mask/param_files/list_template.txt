@@ -1,0 +1,4 @@
+# Halo numbers to process, sorted by M200crit
+0
+1
+10
