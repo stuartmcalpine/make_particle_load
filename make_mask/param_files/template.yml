@@ -37,6 +37,9 @@ sort_type:           M200crit          # Property by which to sort haloes for se
 group_number:        0                 # Index of the halo to centre the mask on, possibly in sorted mass order depending on value of `sort_type`.
 highres_radius_r200: 1.                # [Optional] Minimum target high-resolution radius in units of the halo's r200c (may be 0 [default] for selection only on r500c).
 highres_radius_r500: 5.                # [Optional] Minimum target high-resolution radius in units of the halo's r500c (may be 0 [default] for selection only on r200c).
+highres_radius_padding: 1.             # [Optional] Additional fixed radius added to high-res region (independent of r200c or r500c). Default: 0.
+highres_radius_min:  0.                # [Optional] Fixed minimum radius of high-resolution sphere (independent of r200c or r500c). Default: 0.
+
 
 # MANUAL GROUP SELECTION #
 centre:             [0., 0., 0.]       # Centre of the target high-resolution region in the specified snapshot file.

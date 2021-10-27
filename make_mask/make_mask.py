@@ -203,8 +203,8 @@ class MakeMask:
                         "highres_radius_r500' must be positive!")
 
                 # Set defaults for optional parameters
-                self.params['r_highres_min'] = 0
-                self.params['r_highres_buffer'] = 0
+                self.params['highres_radius_min'] = 0
+                self.params['highres_radius_buffer'] = 0
                 
             else:
                 # Consistency checks for manual target region selection
@@ -301,8 +301,12 @@ class MakeMask:
                     f"Invalid radius of high-res region ({r_highres})")
 
             # If enabled, add a fixed "padding" radius to the high-res sphere
-            if self.params["r_highres_padding"] > 0:
-                r_highres += self.params['r_highres_padding']
+            if self.params['highres_radius_padding'] > 0:
+                r_highres += self.params['highres_radius_padding']
+
+            # If enabled, expand radius to requested minimum.
+            if self.params['highres_radius_min'] > 0:
+                r_highres = max(r_highres, self.params['highres_radius_min'])
 
             # Load halo centre
             names = ['X', 'Y', 'Z']
