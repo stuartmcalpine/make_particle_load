@@ -1,7 +1,8 @@
-# This file lists all the available parameter options. It should not be used
-# as an input parameter file in this form, but modified appropriately.
-# All values (e.g. the coordinates) are expected to be in the same units as
-# used in the snapshot.
+# This file lists all the available parameter options *for batch processing*.
+# 
+# It should not be used as an input parameter file in this form, but modified
+# appropriately. All values (e.g. the coordinates) are expected to be in the
+# same units as used in the snapshot.
 #
 # NOTE: If you are using an automatic group selection, make sure you are using
 # a Velociraptor output catalogue (.properties). SUBFIND output catalogues are
@@ -18,13 +19,12 @@
 # OPTIONS FOR MASK SETUP #
 snap_file:         path/to/parent/box  # The location of the snapshot we are creating the mask from.
 bits:              21                  # The number of bits that were used in the particle IDs for the Peano-Hilbert indexing (EAGLE runs use 14).
-fname:             my_run              # The save name for the mask file
+fname:             my_run_GROUPNUMBER   # The save name for the mask file. It *must* contain the sequence GROUPNUMBER, which is replaced with the individual group numbers for the different haloes.
 output_dir:        path/to/output/mask  # Directory to which the mask image and hdf5 file are saved.
 data_type:         swift               # Type of snapshot to generate the mask from. Can be 'gadget' or 'swift' (default)
 divide_ids_by_two: False               # Switch to divide input particle IDs by 2. This is required if the IDs were multiplied by 2 during gas/DM splitting (as in EAGLE), but generally not for DM-only parent runs.
 min_num_per_cell:  3                   # [Optional] Minimum number of particles per cell (default 3). Cells with fewer than `min_num_per_cell` particles are ignored
 mpc_cell_size:     3.                  # [Optional] Cell size (default 3.)
-select_from_vr:    True                # Switch to select automatic selection of target haloes from Velociraptor catalogue, based on settings in `AUTOMATIC GROUP SELECTION` below. If False, the position and extent of the target region must be specified manually below (`MANUAL GROUP SELECTION`).
 
 # AMOEBA TOPOLOGY #
 topology_fill_holes:       True        # [Optional] Enable algorithm for filling holes (default: True).
@@ -33,16 +33,8 @@ topology_closing_n_iter:    1          # [Optional] Number of iterations of the 
 
 # AUTOMATIC GROUP SELECTION #
 vr_file:             path/to/stf/properties  # Path to the Velociraptor group catalogue to select the target halo from.
-sort_type:           M200crit          # Property by which to sort haloes for selecting the target. Options are 'm200crit' (default), 'm500crit', or 'None'. In the latter case, the halo order as in the catalogue is used.
-group_number:        0                 # Index of the halo to centre the mask on, possibly in sorted mass order depending on value of `sort_type`.
+sort_type:           M200crit          # Property by which to sort haloes for selecting the target. Options are 'm200crit' (default), 'm500crit', or 'None'. In the latter case, the halo order as in the catalogue is used. If the group list file specifies a different sort type, this value is ignored.
 highres_radius_r200: 1.                # [Optional] Minimum target high-resolution radius in units of the halo's r200c (may be 0 [default] for selection only on r500c).
 highres_radius_r500: 5.                # [Optional] Minimum target high-resolution radius in units of the halo's r500c (may be 0 [default] for selection only on r200c).
 highres_radius_padding: 1.             # [Optional] Additional fixed radius added to high-res region (independent of r200c or r500c). Default: 0.
 highres_radius_min:  0.                # [Optional] Fixed minimum radius of high-resolution sphere (independent of r200c or r500c). Default: 0.
-
-
-# MANUAL GROUP SELECTION #
-centre:             [0., 0., 0.]       # Centre of the target high-resolution region in the specified snapshot file.
-shape:             sphere              # Shape of the region to reproduce. Options are: 'sphere', 'cubiod', or 'slab'.
-radius:              1.                # Radius of target high-resolution region (only meaningful if `shape` is 'sphere').
-dim:                 [1., 1., 1.]      # Side lengths of target high-resolution region (only meaningful if `shape` is `cuboid` or `slab').
