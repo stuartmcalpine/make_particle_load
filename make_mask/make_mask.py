@@ -12,7 +12,7 @@ import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from mpi4py import MPI
-
+from peano import peano_hilbert_key_inverses
 
 # ---------------------------------------
 # Load utilities from `modules` directory
@@ -27,19 +27,33 @@ sys.path.append(
     )
 )
 
-# Load utilities, with safety checks to make sure that they are accessible
+HAVE_EAGLE=True
+HAVE_SWIFT=True
+
+# Do we have an EAGLE read routine?
 try:
-    from peano import peano_hilbert_key_inverses
+    # First look for JCH read_eagle.
+    from read_eagle import EagleSnapshot
 except ImportError:
-    raise Exception(
-        "Make sure you have added the `peano.py` module directory to your "
-        "$PYTHONPATH.")
+    HAVE_EAGLE=False
+    try:
+        # See if we have pyread_eagle as backup.
+        from pyread_eagle import EagleSnapshot
+    except ImportError:
+        pass
+    else:
+        HAVE_EAGLE=True
+
+# Do we have a swift read routine?
 try:
     from read_swift import read_swift
 except ImportError:
-    raise Exception(
-        "Make sure you have added the `read_swift.py` module directory to "
-        "your $PYTHONPATH.")
+    HAVE_SWIFT=False
+else:
+    HAVE_SWIFT=True
+
+# Make sure we have at least one kind of read routine.
+assert HAVE_EAGLE or HAVE_SWIFT, 'No read libs found'
 
 # Set up MPI support. We do this at a global level, so that all functions
 # can access the communicator easily
@@ -479,10 +493,10 @@ class MakeMask:
             f"Bounding length: {self.mask_extent:.4f} Mpc/h")
 
         box_volume = np.prod(self.mask_widths)
-        n_sel = len(ind_sel)
+        n_sel = len(ind_sel[0])
         cell_fraction = n_sel * self.cell_size**3 / box_volume
         cell_fraction_cube = n_sel * self.cell_size**3 / self.mask_extent**3
-        print(f'There are {len(ind_sel):d} selected mask cells.')
+        print(f'There are {n_sel:d} selected mask cells.')
         print(f'They fill {cell_fraction * 100:.3f} per cent of the bounding '
               f'box ({cell_fraction_cube * 100:.3f} per cent of bounding '
               f'cube).')
@@ -554,13 +568,17 @@ class MakeMask:
         # First step: set up particle reader and load metadata.
         # This is different for SWIFT and GADGET simulations, but subsequent
         # loading
-        if self.params['data_type'].lower() == 'gadget':
-            raise ValueError(
-                "Processing of Gadget parent simulations is no longer "
-                "supported."
-            )
-
+        if self.params['data_type'].lower() == 'eagle':
+            assert HAVE_EAGLE, 'No EAGLE read routine found'
+            snap = EagleSnapshot(self.params['snap_file'])
+            self.params['bs'] = float(snap.boxsize)
+            self.params['h_factor'] = 1.0
+            self.params['length_unit'] = 'Mph/h'
+            self.params['redshift'] = -1.0
+            snap.select_region(*self.region.T.flatten())
+            if comm_size > 1: snap.split_selection(comm_rank, comm_size)
         elif self.params['data_type'].lower() == 'swift':
+            assert HAVE_SWIFT, 'No SWIFT read routine found'
             snap = read_swift(self.params['snap_file'], comm=comm)
             self.params['bs'] = float(snap.HEADER['BoxSize'])
             self.params['h_factor'] = float(snap.COSMOLOGY['h'])
@@ -781,7 +799,7 @@ class MakeMask:
         # Compute number of particles in each cell, across MPI ranks
         n_p, edges = np.histogramdd(
             r, bins=num_bins, range=[(-width, width)] * 3)
-        n_p = comm.allreduce(n_p, op=MPI.SUM)
+        if comm_size > 1: n_p = comm.allreduce(n_p, op=MPI.SUM)
 
         # Convert particle counts to True/False mask
         mask = n_p >= self.params['min_num_per_cell']
