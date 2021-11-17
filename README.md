@@ -8,42 +8,16 @@ and using
 ```bash
 git pull
 ```
-to update to the latest changes. The masking and particle-load scripts rely on two groups of dependencies: the ones 
-that are specific to this project are collected in the `modules` sub-directory and some external ones, which can be 
-installed and correctly configured following the instructions below.
+to update to the latest changes.
 
 Internal dependencies
 --------
-The `modules` directory contains the following project-specific dependencies:
 
 | Package name           | Platform   | Utility                                                                | Compiled binaries                                 |
 |:---------------------- |------------|------------------------------------------------------------------------|---------------------------------------------------|
-| `peano.py`             | Python     | Translates particle IDs into coordinates from the initial conditions.  | None                                              |
-| `read_swift.py`        | Python     | Reads snapshots generated using the SWIFT code.                        | None                                              |
+| `peano.py`             | Python     | Translates particle IDs into coordinates from the initial conditions.  | None                                              |                                        |
 | `ParallelFunctions.py` | Python     | Wraps functions for the python MPI interface to be used for applying the particle load.                          | None    |
 | `MakeGrid.pyx`         | Cython     | Contains functions for grid deposition.                                | `MakeGrid.c` `MakeGrid.cpython-*.so`              |
-
-The `peano.py` and `read_swift.py` packages are automatically added to the `PYTHONPATH` environment variable at runtime
-whenever the scripts using them are invoked. In the case of `peano.py`, this is achieved using
-```python
-import sys
-
-sys.path.append("path/to/modules/directory/containing/peano")
-
-try:
-    import peano
-except ImportError:
-    raise Exception("Make sure you have added the `peano.py` module directory to your $PYTHONPATH.")
-except:
-    raise Exception(
-        "Something else has gone wrong with importing the `peano.py` module. "
-        "Check the path appended to the $PYTHONPATH points to the correct directory, "
-        "that `peano.py` is set-up correctly and all its dependencies are in correct working order."
-    )
-```
-For this project, scripts will invoke internal dependencies dynamically using the syntax above. If you need to export any
-of the internal dependencies to your script, you can also call `sys.path.append()` to configure them for your custom 
-application.
 
 As part of the particle load production, the `MakeGrid.pyx` is written in Cython and need to be compiled prior any use.
 you can translate `MakeGrid.pyx` into native C code and compile it into a binary image using
@@ -57,8 +31,15 @@ to generate the shared object and is not needed by any other scripts at runtime.
 
 External dependencies
 --------
-To allow back-compatibility with EAGLE-type simulations and other datasets produced with Gadget-2/3, we use the `read_eagle.py`
-module, developed by John Helly and hosted in their [GitHub repository](https://github.com/jchelly/read_eagle). You can 
+To read from SWIFT simulation outputs (for making masks) you need to install the `read_swift.py` script that can be found in
+this here [GitHub repository](https://github.com/stuartmcalpine/swift_scripts).
+Note `read_swift.py` has to be added to your PYTHONPATH.
+
+To allow back-compatibility with EAGLE-type simulations and other datasets produced with Gadget-2/3 (again for making masks), we use the `read_eagle.py`
+module, developed by John Helly and hosted in their [GitHub repository](https://github.com/jchelly/read_eagle), or alternativley
+the `pyread_eagle.py` modulue located in this [GitHub repository](https://github.com/kyleaoman/pyread_eagle).
+
+For `read_eagle.py`, you can 
 set-up this external module by cloning it into a directory of your preference (e.g. could be your `/home` directory) using
 ```bash
 git clone https://github.com/jchelly/read_eagle.git
