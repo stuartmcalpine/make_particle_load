@@ -1,5 +1,6 @@
 import numpy as np
 import yaml
+
 from cosmology_functions import compute_masses, compute_softening
 
 
@@ -18,7 +19,7 @@ class ParticleLoadParams:
             "which_cosmology",
         ]
 
-        # These cannot be in param file.
+        # These **cannot** be in param file, they are command line args.
         self.arg_list = [
             "make_ic_gen_param_files",
             "make_swift_param_files",
@@ -51,7 +52,7 @@ class ParticleLoadParams:
     def read_args(self, args):
         """Parse command line arguments."""
 
-        # Parameter file.
+        # Path to parameter file.
         self.param_file = args.param_file
 
         print("\n")
@@ -91,7 +92,7 @@ class ParticleLoadParams:
         # For non-zoom simulations.
         if self.is_zoom == False:
             assert self.n_species == 1, "Must be 1, not a zoom"
-            assert self.multigrid_ics == 0, "Must be 0, not a zoom" 
+            assert self.multigrid_ics == 0, "Must be 0, not a zoom"
             assert hasattr(self, f"glass_file_loc")
 
     def set_cosmology(self):
@@ -123,11 +124,11 @@ class ParticleLoadParams:
 
         # Make sure we have the minimum params.
         for att in self.required_params:
-            assert att in data.keys(), f"Need to have {att} as required parameter."
+            assert att in data.keys(), f"{att} is a required parameter."
 
         # Make sure these are not in param file.
         for att in self.arg_list:
-            assert att not in data.keys(), f"Command line args cant be params"
+            assert att not in data.keys(), f"Command line arg {att} cannot be a param."
 
         # Print and store read params.
         print(f"Loaded {len(data)} parameters from {self.param_file}:\n")
@@ -142,7 +143,6 @@ class ParticleLoadParams:
         self.add_default_value("coords", np.array([0.0, 0.0, 0.0]))
         self.add_default_value("radius", 0.0)
         self.add_default_value("mask_file", None)
-        self.add_default_value("all_grid", False)
         self.add_default_value("n_species", 1)
         self.add_default_value("num_constraint_files", 0)
         self.add_default_value("nq_mass_reduce_factor", 1 / 2.0)

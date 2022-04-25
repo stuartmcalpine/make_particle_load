@@ -1,9 +1,11 @@
-from parallel_functions import repartition
 import os
-import numpy as np
-import mympi
-from scipy.io import FortranFile
+
 import h5py
+import numpy as np
+from scipy.io import FortranFile
+
+import mympi
+from parallel_functions import repartition
 
 
 def save_particle_load_as_binary(

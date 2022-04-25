@@ -1,8 +1,9 @@
-import numpy as np
-import re
 import os
+import re
 import subprocess
 from string import Template
+
+import numpy as np
 
 
 def build_param_dict(pl_params, high_res_region):

@@ -1,16 +1,18 @@
-import matplotlib.pyplot as plt
-import mympi
 import h5py
+import matplotlib.pyplot as plt
 import numpy as np
+
+import mympi
 from MakeGrid import *
 from ZoomRegionMask import ZoomRegionMask
 
+
 class HighResolutionRegion:
-    """Cell structure for high-resolution grid."""
+    """Generate cell structure for high-resolution grid."""
 
     def __init__(self, pl_params):
 
-        # Dimensions of the high-res region (in units of glass cells).
+        # Compute dimensions of the high-res region (in units of glass cells).
         self.set_initial_dimensions(pl_params)
 
         # Generate the high resolution grid.
@@ -71,7 +73,7 @@ class HighResolutionRegion:
             3,
         )
 
-        # Want a buffer between high res region and low-res outer shells?
+        # Want a buffer between glass cells and low-res outer shells?
         self.n_cells_high_res += pl_params.glass_buffer_cells * 2
         assert np.all(
             self.n_cells_high_res < self.n_cells_whole_volume

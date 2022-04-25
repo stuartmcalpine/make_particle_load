@@ -22,7 +22,8 @@ def compute_ic_cores_from_mem(
         "%sUsing %i cores for IC gen (min %i for FFT and min %i for particles)"
         % (this_str, ncores, ncores_ndisp, ncores_npart)
     )
-    if optimal == False: pl_params.n_cores_ic_gen = ncores
+    if optimal == False:
+        pl_params.n_cores_ic_gen = ncores
 
 
 def compute_optimal_ic_mem(ndim_fft, all_ntot, pl_params):

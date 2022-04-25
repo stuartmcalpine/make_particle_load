@@ -1,4 +1,5 @@
 import numpy as np
+
 import mympi
 from MakeGrid import get_guess_nq
 

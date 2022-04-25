@@ -1,21 +1,15 @@
+import argparse
+
 import numpy as np
 
-import argparse
 import mympi
-
 from HighResolutionRegion import HighResolutionRegion
-
-from ZoomRegionMask import ZoomRegionMask
-
-from ParticleLoadParams import ParticleLoadParams
-
-from LowResolutionRegion import LowResolutionRegion
-
 from ic_gen_functions import compute_fft_stats
-
-from populate_particles import populate_particles
-
+from LowResolutionRegion import LowResolutionRegion
 from make_param_files import *
+from ParticleLoadParams import ParticleLoadParams
+from populate_particles import populate_particles
+from ZoomRegionMask import ZoomRegionMask
 
 # Command line args.
 parser = argparse.ArgumentParser()

@@ -1,6 +1,7 @@
 import numpy as np
+
 import mympi
-from MakeGrid import get_populated_grid, get_layered_particles
+from MakeGrid import get_layered_particles, get_populated_grid
 from save_routines import save_pl
 
 

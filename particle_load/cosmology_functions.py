@@ -1,5 +1,5 @@
-from astropy.cosmology import FlatLambdaCDM
 import astropy.units as u
+from astropy.cosmology import FlatLambdaCDM
 
 
 def compute_masses(pl_params):
