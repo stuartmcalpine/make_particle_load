@@ -1,9 +1,5 @@
 import numpy as np
-
-try:
-    from mpi4py import MPI
-except ImportError:
-    pass
+from mpi4py import MPI
 
 # Initialise MPI if necessary, or set up dummy values otherwise
 comm = None
@@ -26,3 +22,13 @@ def init_mpi(use_mpi):
             print("\nStarting on %d MPI ranks..." % comm_size)
     else:
         print("\nRunning without MPI, using one core only...")
+
+def message(*args, end="\n"):
+    if comm_rank == 0:
+        print(*args, end=end)
+
+def print_section_header(header_name):
+    if comm_rank == 0:
+        print("-" * (len(header_name) + 8))
+        print(f"--- {header_name} ---")
+        print("-" * (len(header_name) + 8))
